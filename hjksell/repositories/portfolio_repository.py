@@ -23,3 +23,6 @@ class PortfolioRepository:
 
     def get(self, portfolio_id: int) -> Portfolio | None:
         return self.session.get(Portfolio, portfolio_id)
+
+    def list_all(self) -> list[Portfolio]:
+        return list(self.session.scalars(select(Portfolio).order_by(Portfolio.id)))

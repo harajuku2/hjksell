@@ -17,6 +17,23 @@ def rate(value: Decimal) -> Decimal:
     return value.quantize(FOUR_PLACES, rounding=ROUND_HALF_UP)
 
 
+def parse_decimal(value: str, *, field_name: str = "значение", positive: bool = False) -> Decimal:
+    """Parse user-entered decimal text, accepting the comma decimal separator."""
+
+    text = value.strip().replace(",", ".")
+    if not text:
+        raise ValueError(f"Введите {field_name}.")
+    try:
+        parsed = Decimal(text)
+    except Exception as exc:
+        raise ValueError(f"Некорректное {field_name}.") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"Некорректное {field_name}.")
+    if positive and parsed <= 0:
+        raise ValueError(f"{field_name.capitalize()} должно быть больше нуля.")
+    return parsed
+
+
 def calculate_cost(purchase_price_pln: Decimal, exchange_rate: Decimal) -> Decimal:
     return money(purchase_price_pln * exchange_rate)
 

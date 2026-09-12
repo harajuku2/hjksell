@@ -20,13 +20,22 @@ class ItemRepository:
         self.session.flush()
         return item
 
-    def active_items(self, portfolio_id: int) -> list[Item]:
-        statement = (
-            select(Item)
-            .where(Item.portfolio_id == portfolio_id, Item.deleted_at.is_(None))
-            .order_by(Item.purchase_date.desc(), Item.created_at.desc(), Item.id.desc())
+    def active_items(self, portfolio_id: int, status: str | None = None) -> list[Item]:
+        conditions = [Item.portfolio_id == portfolio_id, Item.deleted_at.is_(None)]
+        if status is not None:
+            conditions.append(Item.status == status)
+        statement = select(Item).where(*conditions).order_by(
+            Item.purchase_date.desc(), Item.created_at.desc(), Item.id.desc()
         )
         return list(self.session.scalars(statement))
+
+    def get(self, item_id: int, portfolio_id: int | None = None) -> Item | None:
+        item = self.session.get(Item, item_id)
+        if item is None or item.deleted_at is not None:
+            return None
+        if portfolio_id is not None and item.portfolio_id != portfolio_id:
+            return None
+        return item
 
     def set_monthly_expense(self, portfolio_id: int, year: int, month: int, amount_byn: Decimal) -> MonthlyExpense:
         statement = select(MonthlyExpense).where(
@@ -55,6 +64,12 @@ class ItemRepository:
         item.deleted_at = datetime.now()
         item.updated_at = item.deleted_at
         self.session.flush()
+
+    def replace_photo(self, item: Item, photo_path: str) -> Item:
+        item.photo_path = photo_path
+        item.updated_at = datetime.now()
+        self.session.flush()
+        return item
 
     def sale(self, item: Item, sale_price_byn: Decimal, sale_date: date) -> Item:
         item.sale_price_byn = sale_price_byn
