@@ -16,6 +16,7 @@ from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.repositories.settings_repository import SettingsRepository
 from hjksell.services.items import ItemService
 from hjksell.services.photos import PhotoService
+from hjksell.services.finance import item_metrics
 
 
 def make_session() -> Session:
@@ -78,6 +79,23 @@ def test_sale_validation_and_repository_status() -> None:
         service.sell(item, "200,5", date(2026, 9, 12))
         assert item.status == ItemStatus.SOLD.value
         assert item.sale_price_byn == Decimal("200.50")
+
+
+def test_sale_price_can_be_edited_without_changing_sale_date() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        settings = SettingsRepository(session)
+        service = ItemService(ItemRepository(session), settings)
+        item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        service.sell(item, "300", date(2026, 9, 12))
+        first_sale_date = item.sale_date
+        service.sell(item, "350", date(2026, 9, 20))
+        metrics = item_metrics(item.sale_price_byn, item.cost_byn)
+        assert item.sale_price_byn == Decimal("350.00")
+        assert item.sale_date == first_sale_date == date(2026, 9, 12)
+        assert metrics.profit == Decimal("265.00")
+        assert metrics.x == Decimal("4.12")
+        assert metrics.roi == Decimal("311.76")
 
 
 def test_photo_service_copies_to_data_photos(tmp_path) -> None:

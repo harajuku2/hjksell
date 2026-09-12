@@ -13,60 +13,144 @@ from .ui.main_window import MainWindow
 
 
 def build_stylesheet() -> str:
-    """Return the initial dark graphite theme."""
+    """Return the premium dark graphite theme."""
 
     return """
         QMainWindow, QWidget {
-            background-color: #202225;
+            background-color: #0e1117;
             color: #f1f3f5;
-            font-family: "Segoe UI";
-            font-size: 14px;
+            font-family: "Segoe UI Variable", "Segoe UI";
+            font-size: 13px;
+        }
+        QTabBar::tab {
+            background: transparent;
+            color: #7f8996;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 8px 14px 9px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        QTabBar::tab:selected {
+            color: #f1f3f5;
+            border-bottom-color: #7da6d8;
         }
         QLabel#title {
             color: #ffffff;
-            font-size: 32px;
-            font-weight: 600;
+            font-size: 22px;
+            font-weight: 700;
         }
         QLabel#subtitle {
-            color: #aeb4bd;
-            font-size: 16px;
-            margin-top: 8px;
+            color: #7f8996;
+            font-size: 12px;
         }
         QGroupBox {
-            background-color: #292c31;
-            border: 1px solid #3a3f46;
-            border-radius: 6px;
-            margin-top: 12px;
-            padding: 8px;
-            font-weight: 600;
+            background-color: #151920;
+            border: 1px solid #252c36;
+            border-radius: 8px;
+            margin-top: 15px;
+            padding: 12px 10px 10px;
         }
         QGroupBox::title {
             subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 5px;
-            color: #dfe3e8;
+            left: 12px;
+            padding: 0 7px;
+            color: #dfe5ed;
+            font-size: 14px;
+            font-weight: 700;
         }
         QWidget#itemCard {
-            background-color: #30343a;
-            border: 1px solid #3c424a;
-            border-radius: 5px;
+            background-color: #1a1f27;
+            border: 1px solid #252d38;
+            border-radius: 8px;
         }
-        QLabel#monthlyStats {
-            color: #bdc4cd;
-            font-size: 13px;
+        QWidget#itemCard:hover {
+            background-color: #202631;
+            border-color: #344152;
         }
         QLabel#emptyState {
-            color: #9ba3ad;
+            color: #aab4c1;
             font-size: 18px;
         }
-        QLineEdit#saleInput, QLineEdit#exchangeRate {
-            border: 1px solid #536d91;
-            border-radius: 4px;
-            padding: 5px;
-            background: #24272b;
+        QLabel#sectionLabel, QLabel#metricLabel {
+            color: #7f8996;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        QLabel#metricValue {
+            color: #f4f7fb;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        QLabel#profitValue {
+            color: #76c69a;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        QLabel#lossValue {
+            color: #d98282;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        QLabel#statusSold {
+            color: #76c69a;
+            font-weight: 600;
+        }
+        QLabel#statusStock {
+            color: #91a7c4;
+            font-weight: 600;
+        }
+        QLineEdit#saleInput, QLineEdit#exchangeRate, QLineEdit#monthlyExpense {
+            border: 1px solid #334052;
+            border-radius: 5px;
+            padding: 6px 8px;
+            background: #11151c;
+            color: #f1f3f5;
+        }
+        QLineEdit#saleInput {
+            color: #f4f7fb;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        QLineEdit#saleInput:focus, QLineEdit#exchangeRate:focus, QLineEdit#monthlyExpense:focus {
+            border-color: #7199c7;
+        }
+        QToolButton#filterButton, QPushButton#primaryButton {
+            background: transparent;
+            border: none;
+            color: #7f8996;
+            padding: 7px 10px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        QToolButton#filterButton:checked {
+            color: #f1f3f5;
+            border-bottom: 2px solid #7da6d8;
+        }
+        QPushButton#primaryButton {
+            background: #6f94bf;
+            color: #0e1117;
+            border-radius: 5px;
+            padding: 8px 15px;
+        }
+        QPushButton#primaryButton:hover {
+            background: #86a9d2;
+        }
+        QToolButton#itemMenu {
+            background: transparent;
+            border: none;
+            color: #7f8996;
+            font-size: 20px;
         }
         QPushButton {
-            padding: 5px 11px;
+            background: #202833;
+            border: 1px solid #344152;
+            border-radius: 5px;
+            padding: 6px 11px;
+            color: #dce5ef;
+        }
+        QPushButton:hover {
+            background: #293442;
         }
     """
 

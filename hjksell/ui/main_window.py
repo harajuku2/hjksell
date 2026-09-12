@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -180,6 +179,10 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(10)
 
         toolbar = QHBoxLayout()
+        title = QLabel("HJKsell")
+        title.setObjectName("title")
+        toolbar.addWidget(title)
+        toolbar.addSpacing(18)
         self.portfolio_tabs = QTabBar()
         self.portfolio_tabs.setExpanding(False)
         self.portfolio_tabs.currentChanged.connect(self._portfolio_changed)
@@ -195,16 +198,23 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(rate_label)
         toolbar.addWidget(self.rate_edit)
         toolbar.addStretch()
-        self.add_button = QPushButton("+ Добавить")
+        self.add_button = QPushButton("+ ДОБАВИТЬ")
+        self.add_button.setObjectName("primaryButton")
         self.add_button.clicked.connect(self._add_item)
         toolbar.addWidget(self.add_button)
         root_layout.addLayout(toolbar)
 
         filters = QHBoxLayout()
-        filters.addWidget(QLabel("Показать:"))
-        self.filter_buttons: dict[str, QRadioButton] = {}
+        filter_label = QLabel("ФИЛЬТР")
+        filter_label.setObjectName("sectionLabel")
+        filters.addWidget(filter_label)
+        self.filter_buttons: dict[str, QToolButton] = {}
         for key, text in (("all", "Все"), ("stock", "В наличии"), ("sold", "Продано")):
-            button = QRadioButton(text)
+            button = QToolButton()
+            button.setText(text.upper())
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+            button.setObjectName("filterButton")
             button.setProperty("filter", key)
             button.clicked.connect(lambda checked, value=key: self._set_filter(value))
             self.filter_buttons[key] = button
@@ -310,9 +320,26 @@ class MainWindow(QMainWindow):
         group.setChecked((year, month) == (date.today().year, date.today().month))
         group.setTitle(f"{names[month - 1]} {year}")
         outer = QVBoxLayout(group)
-        stats = QLabel(self._stats_text(metrics))
-        stats.setObjectName("monthlyStats")
-        outer.addWidget(stats)
+        stats_row = QHBoxLayout()
+        for value, label in (
+            (f"{metrics.invested:.2f} BYN", "ВЛОЖЕНО"),
+            (str(metrics.purchased_count), "КУПЛЕНО"),
+            (f"{metrics.revenue:.2f} BYN", "ВЫРУЧКА"),
+            (str(metrics.sold_count), "ПРОДАНО"),
+            ("—" if metrics.average_x is None else f"{metrics.average_x:.2f}x", "СРЕДНИЙ X"),
+            ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI"),
+        ):
+            stats_row.addWidget(self._metric_block(value, label))
+        stats_row.addStretch()
+        net_value = QLabel(f"{metrics.net_profit:+.2f} BYN")
+        net_value.setObjectName("profitValue" if metrics.net_profit >= 0 else "lossValue")
+        net_label = QLabel("ЧИСТАЯ ПРИБЫЛЬ")
+        net_label.setObjectName("metricLabel")
+        net_column = QVBoxLayout()
+        net_column.addWidget(net_value)
+        net_column.addWidget(net_label)
+        stats_row.addLayout(net_column)
+        outer.addLayout(stats_row)
         expense = QLineEdit(f"{metrics.expenses:.2f}")
         expense.setObjectName("monthlyExpense")
         expense.setPlaceholderText("Расходы BYN")
@@ -320,7 +347,7 @@ class MainWindow(QMainWindow):
         expense.setToolTip("Расходы месяца в BYN")
         expense.editingFinished.connect(lambda e=expense, y=year, m=month: self._save_expense(e, y, m))
         expense_row = QHBoxLayout()
-        expense_row.addWidget(QLabel("Расходы BYN:"))
+        expense_row.addWidget(QLabel("РАСХОДЫ"))
         expense_row.addWidget(expense)
         expense_row.addStretch()
         outer.addLayout(expense_row)
@@ -335,14 +362,17 @@ class MainWindow(QMainWindow):
         return group
 
     @staticmethod
-    def _stats_text(metrics: MonthlyMetrics) -> str:
-        average_x = "—" if metrics.average_x is None else f"{metrics.average_x:.2f}x"
-        roi = "—" if metrics.roi is None else f"{metrics.roi:.2f}%"
-        return (
-            f"Вложено: {metrics.invested:.2f} BYN   Куплено: {metrics.purchased_count}   "
-            f"Продано: {metrics.sold_count}   Продажи: {metrics.revenue:.2f} BYN   "
-            f"X: {average_x}   ROI: {roi}   Чистая прибыль: {metrics.net_profit:.2f} BYN"
-        )
+    def _metric_block(value: str, label: str) -> QWidget:
+        block = QWidget()
+        layout = QVBoxLayout(block)
+        layout.setContentsMargins(0, 0, 18, 0)
+        value_label = QLabel(value)
+        value_label.setObjectName("metricValue")
+        label_widget = QLabel(label)
+        label_widget.setObjectName("metricLabel")
+        layout.addWidget(value_label)
+        layout.addWidget(label_widget)
+        return block
 
     def _item_row(self, item: Item) -> QWidget:
         row = QFrameCard()
@@ -359,26 +389,55 @@ class MainWindow(QMainWindow):
             photo.setText("Нет фото")
         layout.addWidget(photo)
         details = QVBoxLayout()
-        details.addWidget(QLabel(f"Куплено {item.purchase_price_pln:.2f} PLN"))
-        details.addWidget(QLabel(f"Себестоимость {item.cost_byn:.2f} BYN"))
-        details.addWidget(QLabel(f"Курс {item.exchange_rate:.4f}"))
-        details.addWidget(QLabel(f"Дата {item.purchase_date:%d.%m.%Y}"))
+        month_names = (
+            "ЯНВАРЯ", "ФЕВРАЛЯ", "МАРТА", "АПРЕЛЯ", "МАЯ", "ИЮНЯ",
+            "ИЮЛЯ", "АВГУСТА", "СЕНТЯБРЯ", "ОКТЯБРЯ", "НОЯБРЯ", "ДЕКАБРЯ",
+        )
+        date_label = QLabel(
+            f"{item.purchase_date.day:02d} {month_names[item.purchase_date.month - 1]} {item.purchase_date.year}"
+        )
+        date_label.setObjectName("sectionLabel")
+        details.addWidget(date_label)
+        info_row = QHBoxLayout()
+        for value, label in (
+            (f"{item.purchase_price_pln:.2f} PLN", "ПОКУПКА"),
+            (f"{item.cost_byn:.2f} BYN", "СЕБЕСТОИМОСТЬ"),
+            (f"{item.exchange_rate:.4f}", "КУРС"),
+        ):
+            info_row.addWidget(self._metric_block(value, label))
+        status = QLabel("● ПРОДАНО" if item.status == ItemStatus.SOLD.value else "● В НАЛИЧИИ")
+        status.setObjectName("statusSold" if item.status == ItemStatus.SOLD.value else "statusStock")
+        info_row.addWidget(status)
+        info_row.addStretch()
+        details.addLayout(info_row)
         metrics = item_metrics(item.sale_price_byn, item.cost_byn)
-        if item.status == ItemStatus.SOLD.value and item.sale_price_byn is not None:
-            details.addWidget(QLabel(f"ПРОДАНО {item.sale_price_byn:.2f} BYN"))
-            details.addWidget(QLabel(f"Прибыль {metrics.profit:+.2f} BYN   X {metrics.x:.2f}x   ROI {metrics.roi:+.2f}%"))
-            if item.sale_date:
-                details.addWidget(QLabel(f"Продано {item.sale_date:%d.%m.%Y} ({(item.sale_date - item.purchase_date).days} дней)"))
-        else:
-            sale = QLineEdit()
-            sale.setPlaceholderText("Продажа BYN — Enter")
-            sale.setObjectName("saleInput")
-            sale.returnPressed.connect(lambda edit=sale, current=item: self._sell(current, edit))
-            details.addWidget(sale)
-            details.addWidget(QLabel("Продажа —   Прибыль —   X —   ROI —"))
+        sale_row = QHBoxLayout()
+        sale_column = QVBoxLayout()
+        sale_label = QLabel("ПРОДАЖА")
+        sale_label.setObjectName("sectionLabel")
+        sale = QLineEdit("" if item.sale_price_byn is None else f"{item.sale_price_byn:.2f}")
+        sale.setPlaceholderText("ВВЕСТИ СУММУ")
+        sale.setObjectName("saleInput")
+        sale.setFixedWidth(150)
+        sale.returnPressed.connect(lambda edit=sale, current=item: self._sell(current, edit))
+        sale_column.addWidget(sale_label)
+        sale_column.addWidget(sale)
+        sale_row.addLayout(sale_column)
+        for value, label, object_name in (
+            ("—" if metrics.profit is None else f"{metrics.profit:+.2f} BYN", "ПРИБЫЛЬ", "profitValue"),
+            ("—" if metrics.x is None else f"{metrics.x:.2f}x", "X", "metricValue"),
+            ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI", "profitValue"),
+            ("—" if item.sale_date is None else f"{(item.sale_date - item.purchase_date).days} ДНЕЙ", "ДО ПРОДАЖИ", "metricValue"),
+        ):
+            block = self._metric_block(value, label)
+            block.findChild(QLabel).setObjectName(object_name)
+            sale_row.addWidget(block)
+        sale_row.addStretch()
+        details.addLayout(sale_row)
         layout.addLayout(details, 1)
         menu_button = QToolButton()
         menu_button.setText("⋯")
+        menu_button.setObjectName("itemMenu")
         menu = QMenu(menu_button)
         replace = QAction("Заменить фото", menu)
         replace.triggered.connect(lambda current=item: self._replace_photo(current))
