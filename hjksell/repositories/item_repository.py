@@ -29,6 +29,17 @@ class ItemRepository:
         )
         return list(self.session.scalars(statement))
 
+    def active_items_for_analytics(self, portfolio_id: int | None) -> list[Item]:
+        """Return non-deleted items, optionally scoped to one portfolio.
+
+        The optional scope is useful for resolving an all-time period without
+        making the analytics service know anything about SQLAlchemy.
+        """
+        conditions = [Item.deleted_at.is_(None)]
+        if portfolio_id is not None:
+            conditions.append(Item.portfolio_id == portfolio_id)
+        return list(self.session.scalars(select(Item).where(*conditions)))
+
     def get(self, item_id: int, portfolio_id: int | None = None) -> Item | None:
         item = self.session.get(Item, item_id)
         if item is None or item.deleted_at is not None:
@@ -59,6 +70,24 @@ class ItemRepository:
             MonthlyExpense.month == month,
         )
         return self.session.scalar(statement) or Decimal("0.00")
+
+    def monthly_expenses_between(self, portfolio_id: int, start_date: date, end_date: date) -> list[tuple[int, int, Decimal]]:
+        """Return expense rows whose calendar month overlaps an inclusive period."""
+        statement = select(MonthlyExpense.year, MonthlyExpense.month, MonthlyExpense.amount_byn).where(
+            MonthlyExpense.portfolio_id == portfolio_id,
+        )
+        result = []
+        for year, month, amount in self.session.execute(statement):
+            month_start = date(year, month, 1)
+            # A monthly expense belongs to the month, even when a custom
+            # period starts/ends in the middle of that month.
+            if date(start_date.year, start_date.month, 1) <= month_start <= date(end_date.year, end_date.month, 1):
+                result.append((year, month, amount))
+        return result
+
+    def all_monthly_expenses(self, portfolio_id: int | None) -> list[tuple[int, int, Decimal]]:
+        conditions = [] if portfolio_id is None else [MonthlyExpense.portfolio_id == portfolio_id]
+        return list(self.session.execute(select(MonthlyExpense.year, MonthlyExpense.month, MonthlyExpense.amount_byn).where(*conditions)))
 
     def soft_delete(self, item: Item) -> None:
         item.deleted_at = datetime.now()

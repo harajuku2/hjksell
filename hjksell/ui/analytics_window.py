@@ -1,0 +1,243 @@
+"""The standalone detailed analytics screen."""
+
+from __future__ import annotations
+
+import math
+from decimal import Decimal
+from typing import Callable
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (
+    QComboBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QScrollArea,
+    QTabBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..database.models import Portfolio
+from ..repositories.item_repository import ItemRepository
+from ..repositories.portfolio_repository import PortfolioRepository
+from ..services.analytics import AnalyticsService, PeriodPreset
+
+
+class MiniLineChart(QWidget):
+    """A dependency-free, dark line chart suitable for a compact dashboard."""
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.title = title
+        self.labels: list[str] = []
+        self.values: list[float] = []
+        self.setMinimumHeight(170)
+
+    def set_data(self, labels: list[str], values: list[Decimal]) -> None:
+        self.labels = labels
+        self.values = [float(value) if value.is_finite() else 0.0 for value in values]
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#151920"))
+        painter.setPen(QColor("#dfe5ed"))
+        painter.drawText(14, 22, self.title)
+        left, top, right, bottom = 14, 36, self.width() - 12, self.height() - 28
+        if right <= left or bottom <= top:
+            return
+        painter.setPen(QPen(QColor("#29313d"), 1))
+        painter.drawLine(left, bottom, right, bottom)
+        if not self.values:
+            painter.setPen(QColor("#7f8996"))
+            painter.drawText(left, (top + bottom) // 2, "Нет данных за период")
+            return
+        low, high = min(0.0, min(self.values)), max(0.0, max(self.values))
+        if math.isclose(low, high):
+            high = low + 1.0
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+
+        def point(index: int) -> tuple[int, int]:
+            x = left + int(width * index / max(1, len(self.values) - 1))
+            y = top + int((high - self.values[index]) / (high - low) * height)
+            return x, y
+
+        zero_y = top + int((high / (high - low)) * height)
+        painter.setPen(QPen(QColor("#394453"), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(left, zero_y, right, zero_y)
+        path = QPainterPath()
+        first = point(0)
+        path.moveTo(*first)
+        for index in range(1, len(self.values)):
+            path.lineTo(*point(index))
+        painter.setPen(QPen(QColor("#86a9d2"), 2))
+        painter.drawPath(path)
+        painter.setBrush(QColor("#86a9d2"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        for index in range(len(self.values)):
+            x, y = point(index)
+            painter.drawEllipse(x - 3, y - 3, 6, 6)
+        painter.setPen(QColor("#7f8996"))
+        for index, label in enumerate(self.labels):
+            if index in (0, len(self.labels) - 1) or len(self.labels) <= 6:
+                x, _y = point(index)
+                painter.drawText(x - 26, bottom + 18, label)
+
+
+def _decimal(value: Decimal | None, suffix: str = " BYN") -> str:
+    return "—" if value is None else f"{value:.2f}{suffix}"
+
+
+class AnalyticsWindow(QMainWindow):
+    """Premium-dark analytics window with a portfolio and period scope."""
+
+    def __init__(
+        self,
+        session_factory: Callable,
+        selected_portfolio_id: int | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.session_factory = session_factory
+        self.portfolios: list[Portfolio] = []
+        self.current_portfolio_id = selected_portfolio_id
+        self.setWindowTitle("HJKsell — АНАЛИТИКА")
+        self.resize(1080, 760)
+        self.setMinimumSize(820, 600)
+        self._build_ui()
+        self._load_portfolios()
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
+        title = QLabel("АНАЛИТИКА")
+        title.setObjectName("analyticsTitle")
+        header.addWidget(title)
+        self.portfolio_tabs = QTabBar()
+        self.portfolio_tabs.currentChanged.connect(self._portfolio_changed)
+        header.addWidget(self.portfolio_tabs)
+        header.addStretch()
+        header.addWidget(QLabel("ПЕРИОД"))
+        self.period_combo = QComboBox()
+        for preset, text in (
+            (PeriodPreset.CURRENT_MONTH, "Текущий месяц"),
+            (PeriodPreset.PREVIOUS_MONTH, "Предыдущий месяц"),
+            (PeriodPreset.THREE_MONTHS, "3 месяца"),
+            (PeriodPreset.SIX_MONTHS, "6 месяцев"),
+            (PeriodPreset.CURRENT_YEAR, "Текущий год"),
+            (PeriodPreset.ALL_TIME, "Всё время"),
+        ):
+            self.period_combo.addItem(text, preset)
+        self.period_combo.currentIndexChanged.connect(self.refresh)
+        header.addWidget(self.period_combo)
+        back = QPushButton("← КАТАЛОГ")
+        back.setObjectName("analyticsBack")
+        back.clicked.connect(self.close)
+        header.addWidget(back)
+        layout.addLayout(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        self.period_label = QLabel()
+        self.period_label.setObjectName("analyticsSubtitle")
+        content_layout.addWidget(self.period_label)
+        self.metrics_grid = QGridLayout()
+        self.metric_labels: dict[str, QLabel] = {}
+        fields = (
+            ("revenue", "ВЫРУЧКА"), ("realized_profit", "РЕАЛИЗОВАННАЯ ПРИБЫЛЬ"),
+            ("net_profit", "ЧИСТАЯ ПРИБЫЛЬ"), ("expenses", "РАСХОДЫ"),
+            ("roi", "ROI"), ("roi_after_expenses", "ROI ПОСЛЕ РАСХОДОВ"),
+            ("average_x", "СРЕДНИЙ X"), ("best_x", "ЛУЧШИЙ X"),
+            ("worst_x", "ХУДШИЙ X"), ("average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ"),
+            ("average_sale", "СРЕДНЯЯ ПРОДАЖА"), ("average_profit", "СРЕДНЯЯ ПРИБЫЛЬ"),
+            ("purchased_count", "КОЛИЧЕСТВО ЗАКУПОК"), ("sold_count", "КОЛИЧЕСТВО ПРОДАЖ"),
+            ("in_stock_count", "В НАЛИЧИИ"), ("warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ"),
+            ("average_sale_days", "СРЕДНЕЕ ВРЕМЯ ПРОДАЖИ"),
+        )
+        for index, (key, label) in enumerate(fields):
+            box = QGroupBox(label)
+            box_layout = QVBoxLayout(box)
+            value = QLabel("—")
+            value.setObjectName("analyticsValue")
+            box_layout.addWidget(value)
+            self.metric_labels[key] = value
+            self.metrics_grid.addWidget(box, index // 4, index % 4)
+        content_layout.addLayout(self.metrics_grid)
+        charts = QHBoxLayout()
+        self.revenue_chart = MiniLineChart("ВЫРУЧКА ПО МЕСЯЦАМ")
+        self.profit_chart = MiniLineChart("ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ")
+        self.invested_chart = MiniLineChart("ВЛОЖЕНО ПО МЕСЯЦАМ")
+        charts.addWidget(self.revenue_chart)
+        charts.addWidget(self.profit_chart)
+        charts.addWidget(self.invested_chart)
+        content_layout.addLayout(charts)
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        self.setCentralWidget(root)
+
+    def _load_portfolios(self) -> None:
+        with self.session_factory() as session:
+            all_portfolios = PortfolioRepository(session).list_all()
+            self.portfolios = [portfolio for portfolio in all_portfolios if portfolio.name in {"МОЯ", "ДРУГА"}]
+        for portfolio in self.portfolios:
+            self.portfolio_tabs.addTab(portfolio.name)
+        if self.current_portfolio_id is None and self.portfolios:
+            self.current_portfolio_id = self.portfolios[0].id
+        selected = next(
+            (index for index, portfolio in enumerate(self.portfolios) if portfolio.id == self.current_portfolio_id),
+            0,
+        )
+        self.portfolio_tabs.setCurrentIndex(selected)
+        self.refresh()
+
+    def _portfolio_changed(self, index: int) -> None:
+        if 0 <= index < len(self.portfolios):
+            self.current_portfolio_id = self.portfolios[index].id
+            self.refresh()
+
+    def refresh(self) -> None:
+        if self.current_portfolio_id is None:
+            return
+        preset = self.period_combo.currentData()
+        with self.session_factory() as session:
+            service = AnalyticsService(ItemRepository(session))
+            period = service.resolve_period(preset)
+            metrics = service.detailed_metrics(self.current_portfolio_id, period)
+            monthly = service.monthly_breakdown(self.current_portfolio_id, period)
+        self.period_label.setText(f"{period.start_date.isoformat()} — {period.end_date.isoformat()}")
+        money_fields = {"revenue", "realized_profit", "net_profit", "expenses", "average_cost", "average_sale", "average_profit", "warehouse_value"}
+        percent_fields = {"roi", "roi_after_expenses"}
+        x_fields = {"average_x", "best_x", "worst_x"}
+        day_fields = {"average_sale_days"}
+        for key, label in self.metric_labels.items():
+            value = getattr(metrics, key)
+            if key in money_fields:
+                text = _decimal(value)
+            elif key in percent_fields:
+                text = _decimal(value, "%")
+            elif key in x_fields:
+                text = _decimal(value, "x")
+            elif key in day_fields:
+                text = _decimal(value, " дн.")
+            else:
+                text = str(value)
+            label.setText(text)
+        labels = [entry.label for entry in monthly]
+        self.revenue_chart.set_data(labels, [entry.revenue for entry in monthly])
+        self.profit_chart.set_data(labels, [entry.net_profit for entry in monthly])
+        self.invested_chart.set_data(labels, [entry.invested for entry in monthly])

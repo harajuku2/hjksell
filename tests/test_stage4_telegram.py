@@ -129,6 +129,19 @@ def test_telegram_transport_loggers_are_disabled() -> None:
     assert logging.getLogger("httpcore").disabled
 
 
+def test_saved_token_is_restored_after_application_restart(tmp_path: Path) -> None:
+    factory, _photos = make_factory(tmp_path)
+    fake_token = "123456:fake-token"
+
+    with factory() as session:
+        TelegramRepository(session).set_token(fake_token)
+        session.commit()
+
+    # A new session represents the next application process.
+    with factory() as restarted_session:
+        assert TelegramRepository(restarted_session).token() == fake_token
+
+
 def test_download_error_is_retryable_without_advancing_offset(tmp_path: Path) -> None:
     factory, photos = make_factory(tmp_path)
     api = FakeApi()

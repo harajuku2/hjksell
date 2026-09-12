@@ -49,6 +49,7 @@ from ..services.telegram import (
     TelegramValidationWorker,
 )
 from ..repositories.telegram_repository import TelegramRepository
+from .analytics_window import AnalyticsWindow
 
 
 class ClickableLabel(QLabel):
@@ -164,7 +165,7 @@ class TelegramSettingsDialog(QDialog):
         self,
         portfolios: list[Portfolio],
         selected_portfolio: int | None,
-        token_is_saved: bool,
+        saved_token: str | None,
         discovered_channel: tuple[str, str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -200,7 +201,9 @@ class TelegramSettingsDialog(QDialog):
         token_row.addWidget(validate)
         token_widget = QWidget()
         token_widget.setLayout(token_row)
-        self.validation = QLabel("Токен не изменён." if token_is_saved else "Токен не задан.")
+        if saved_token:
+            self.token_edit.setText(saved_token)
+        self.validation = QLabel("Токен сохранён." if saved_token else "Токен не задан.")
         layout.addRow("Bot Token", token_widget)
         layout.addRow("", self.validation)
 
@@ -282,6 +285,7 @@ class MainWindow(QMainWindow):
         self._telegram_qworker: TelegramQtWorker | None = None
         self._telegram_importer: TelegramImportService | None = None
         self._telegram_api: TelegramApiClient | None = None
+        self._analytics_window: AnalyticsWindow | None = None
         self._build_ui()
         self._load_portfolios()
         self._start_telegram_polling()
@@ -312,6 +316,11 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(rate_label)
         toolbar.addWidget(self.rate_edit)
         toolbar.addStretch()
+        self.analytics_button = QPushButton("АНАЛИТИКА")
+        self.analytics_button.setObjectName("primaryButton")
+        self.analytics_button.setToolTip("Подробная аналитика портфеля")
+        self.analytics_button.clicked.connect(self._open_analytics)
+        toolbar.addWidget(self.analytics_button)
         self.add_button = QPushButton("+ ДОБАВИТЬ")
         self.add_button.setObjectName("primaryButton")
         self.add_button.clicked.connect(self._add_item)
@@ -362,6 +371,18 @@ class MainWindow(QMainWindow):
         self.scroll.setWidget(self.catalogue)
         root_layout.addWidget(self.scroll, 1)
         self.setCentralWidget(root)
+
+    def _open_analytics(self) -> None:
+        """Open analytics separately so the dense catalogue remains unchanged."""
+        if self._analytics_window is not None:
+            self._analytics_window.show()
+            self._analytics_window.raise_()
+            self._analytics_window.activateWindow()
+            self._analytics_window.refresh()
+            return
+        self._analytics_window = AnalyticsWindow(self.session_factory, self.current_portfolio_id, self)
+        self._analytics_window.destroyed.connect(lambda: setattr(self, "_analytics_window", None))
+        self._analytics_window.show()
 
     def _start_telegram_polling(self) -> None:
         with self.session_factory() as session:
@@ -437,7 +458,7 @@ class MainWindow(QMainWindow):
     def _telegram_settings_dialog(self, discovered: tuple[str, str | None] | None = None) -> None:
         with self.session_factory() as session:
             repository = TelegramRepository(session)
-            token_saved = bool(repository.token())
+            saved_token = repository.token()
             if discovered is None:
                 saved = repository.discovered_channels()
                 if saved:
@@ -445,7 +466,7 @@ class MainWindow(QMainWindow):
         dialog = TelegramSettingsDialog(
             self.portfolios,
             self.current_portfolio_id,
-            token_saved,
+            saved_token,
             discovered,
             self,
         )
@@ -668,9 +689,9 @@ class MainWindow(QMainWindow):
         menu_button.setObjectName("itemMenu")
         menu = QMenu(menu_button)
         replace = QAction("Заменить фото", menu)
-        replace.triggered.connect(lambda current=item: self._replace_photo(current))
+        replace.triggered.connect(lambda _checked=False, current=item: self._replace_photo(current))
         delete = QAction("Удалить", menu)
-        delete.triggered.connect(lambda current=item: self._delete_item(current))
+        delete.triggered.connect(lambda _checked=False, current=item: self._delete_item(current))
         menu.addAction(replace)
         menu.addAction(delete)
         menu_button.setMenu(menu)

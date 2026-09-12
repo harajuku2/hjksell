@@ -17,6 +17,8 @@ from hjksell.repositories.settings_repository import SettingsRepository
 from hjksell.services.items import ItemService
 from hjksell.services.photos import PhotoService
 from hjksell.services.finance import item_metrics
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QApplication
 
 
 def make_session() -> Session:
@@ -105,3 +107,15 @@ def test_photo_service_copies_to_data_photos(tmp_path) -> None:
     copied = Path(PhotoService(paths).copy_photo(source))
     assert copied.parent == paths.photos
     assert copied.read_bytes() == source.read_bytes()
+
+
+def test_item_menu_actions_ignore_qt_checked_argument() -> None:
+    app = QApplication.instance() or QApplication([])
+    item = object()
+    received: list[object] = []
+    action = QAction("Удалить")
+    action.triggered.connect(lambda _checked=False, current=item: received.append(current))
+
+    action.trigger()
+
+    assert received == [item]

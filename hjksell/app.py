@@ -51,6 +51,28 @@ def build_stylesheet() -> str:
             margin-top: 15px;
             padding: 12px 10px 10px;
         }
+        QLabel#analyticsTitle {
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: 700;
+        }
+        QLabel#analyticsSubtitle {
+            color: #7f8996;
+            font-size: 12px;
+            padding-bottom: 3px;
+        }
+        QLabel#analyticsValue {
+            color: #f4f7fb;
+            font-size: 17px;
+            font-weight: 700;
+        }
+        QPushButton#analyticsBack {
+            background: #202833;
+            border: 1px solid #344152;
+            border-radius: 5px;
+            padding: 8px 12px;
+            color: #dce5ef;
+        }
         QGroupBox::title {
             subcontrol-origin: margin;
             left: 12px;
