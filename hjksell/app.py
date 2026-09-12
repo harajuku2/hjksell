@@ -7,6 +7,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from .database.connection import initialize_database
 from .logging_config import configure_logging
 from .ui.main_window import MainWindow
 
@@ -40,6 +41,7 @@ def main() -> int:
     paths = configure_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting HJKsell")
+    initialize_database(paths)
 
     application = QApplication(sys.argv)
     application.setApplicationName("HJKsell")
