@@ -14,6 +14,10 @@ def configure_logging(paths: AppPaths | None = None) -> AppPaths:
     resolved_paths = ensure_app_directories(paths)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
+    for logger_name in ("httpx", "httpcore"):
+        transport_logger = logging.getLogger(logger_name)
+        transport_logger.setLevel(logging.WARNING)
+        transport_logger.disabled = True
 
     if not root_logger.handlers:
         formatter = logging.Formatter(

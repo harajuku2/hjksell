@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -88,7 +88,7 @@ class TelegramChannel(Base):
     __tablename__ = "telegram_channels"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    portfolio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("portfolios.id"))
     channel_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
@@ -96,9 +96,16 @@ class TelegramChannel(Base):
 
 class TelegramImport(Base):
     __tablename__ = "telegram_imports"
+    __table_args__ = (
+        Index("uq_telegram_import_channel_message", "channel_id", "message_id", unique=True),
+        Index("uq_telegram_import_update", "update_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    message_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel_id: Mapped[Optional[str]] = mapped_column(String(128))
+    message_id: Mapped[Optional[int]] = mapped_column(Integer)
     update_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="imported")
+    error_message: Mapped[Optional[str]] = mapped_column(String(512))
     imported_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

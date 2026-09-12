@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtCore import QDate, QThread, Qt, Signal
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -42,6 +42,13 @@ from ..services.analytics import AnalyticsService, MonthlyMetrics
 from ..services.finance import calculate_cost, item_metrics, parse_decimal
 from ..services.items import ItemService
 from ..services.photos import PhotoService
+from ..services.telegram import (
+    TelegramApiClient,
+    TelegramImportService,
+    TelegramQtWorker,
+    TelegramValidationWorker,
+)
+from ..repositories.telegram_repository import TelegramRepository
 
 
 class ClickableLabel(QLabel):
@@ -150,6 +157,108 @@ class AddItemDialog(QDialog):
         return source, int(self.portfolio.currentData()), self.price.text(), purchase_date
 
 
+class TelegramSettingsDialog(QDialog):
+    """Masked token editor with a manual channel binding fallback."""
+
+    def __init__(
+        self,
+        portfolios: list[Portfolio],
+        selected_portfolio: int | None,
+        token_is_saved: bool,
+        discovered_channel: tuple[str, str | None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Настройки → Telegram")
+        self.setMinimumWidth(480)
+        self._validation_thread: QThread | None = None
+        self._validation_worker: TelegramValidationWorker | None = None
+        layout = QFormLayout(self)
+        self.discovered_channel = discovered_channel
+        self.binding_portfolio_id: int | None = None
+        if discovered_channel:
+            discovered_box = QGroupBox("Обнаруженный канал")
+            discovered_layout = QVBoxLayout(discovered_box)
+            discovered_layout.addWidget(QLabel(f"Обнаружен канал: {discovered_channel[1] or 'Без названия'}"))
+            discovered_layout.addWidget(QLabel(f"ID: {discovered_channel[0]}"))
+            binding_row = QHBoxLayout()
+            bind_mine = QPushButton("Привязать к МОЯ")
+            bind_friend = QPushButton("Привязать к ДРУГА")
+            bind_mine.clicked.connect(lambda: self._bind_discovered(portfolios, "МОЯ"))
+            bind_friend.clicked.connect(lambda: self._bind_discovered(portfolios, "ДРУГА"))
+            binding_row.addWidget(bind_mine)
+            binding_row.addWidget(bind_friend)
+            discovered_layout.addLayout(binding_row)
+            layout.addRow(discovered_box)
+        self.token_edit = QLineEdit()
+        self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_edit.setPlaceholderText("•••••••• (оставьте пустым, чтобы сохранить текущий)")
+        validate = QPushButton("Проверить")
+        validate.clicked.connect(self._validate)
+        token_row = QHBoxLayout()
+        token_row.addWidget(self.token_edit, 1)
+        token_row.addWidget(validate)
+        token_widget = QWidget()
+        token_widget.setLayout(token_row)
+        self.validation = QLabel("Токен не изменён." if token_is_saved else "Токен не задан.")
+        layout.addRow("Bot Token", token_widget)
+        layout.addRow("", self.validation)
+
+        self.channel_id = QLineEdit()
+        self.channel_id.setPlaceholderText("например, -1001234567890")
+        if discovered_channel:
+            self.channel_id.setText(discovered_channel[0])
+        self.portfolio = QComboBox()
+        for portfolio in portfolios:
+            self.portfolio.addItem(portfolio.name, portfolio.id)
+        index = self.portfolio.findData(selected_portfolio)
+        if index >= 0:
+            self.portfolio.setCurrentIndex(index)
+        layout.addRow("ID канала (fallback)", self.channel_id)
+        layout.addRow("Привязать к", self.portfolio)
+        hint = QLabel("После проверки отправьте тестовый пост: канал можно будет привязать из подсказки Telegram.")
+        hint.setWordWrap(True)
+        layout.addRow("", hint)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def _bind_discovered(self, portfolios: list[Portfolio], name: str) -> None:
+        portfolio = next((value for value in portfolios if value.name == name), None)
+        if portfolio is None:
+            return
+        self.binding_portfolio_id = portfolio.id
+        self.portfolio.setCurrentIndex(self.portfolio.findData(portfolio.id))
+        self.channel_id.setText(self.discovered_channel[0] if self.discovered_channel else "")
+        self.validation.setText(f"Канал будет привязан к {name}. Нажмите «Сохранить».")
+
+    def _validate(self) -> None:
+        token = self.token_edit.text().strip()
+        if not token:
+            self.validation.setText("Введите новый токен для проверки.")
+            return
+        if self._validation_thread is not None:
+            return
+        self.validation.setText("Проверка…")
+        self._validation_thread = QThread(self)
+        self._validation_worker = TelegramValidationWorker(token)
+        self._validation_worker.moveToThread(self._validation_thread)
+        self._validation_thread.started.connect(self._validation_worker.run)
+        self._validation_worker.finished.connect(self._validation_finished)
+        self._validation_worker.finished.connect(self._validation_thread.quit)
+        self._validation_thread.finished.connect(self._validation_thread.deleteLater)
+        self._validation_thread.start()
+
+    def _validation_finished(self, ok: bool, message: str) -> None:
+        self.validation.setText(("✓ " if ok else "⚠ ") + message)
+        self._validation_thread = None
+        self._validation_worker = None
+
+    def values(self) -> tuple[str, str, int]:
+        return self.token_edit.text().strip(), self.channel_id.text().strip(), int(self.portfolio.currentData())
+
+
 class MainWindow(QMainWindow):
     """Main catalogue UI. Database operations stay in repositories/services."""
 
@@ -169,8 +278,13 @@ class MainWindow(QMainWindow):
         self.photo_service = PhotoService(self.paths)
         self.current_filter = "all"
         self.current_portfolio_id: int | None = None
+        self._telegram_thread: QThread | None = None
+        self._telegram_qworker: TelegramQtWorker | None = None
+        self._telegram_importer: TelegramImportService | None = None
+        self._telegram_api: TelegramApiClient | None = None
         self._build_ui()
         self._load_portfolios()
+        self._start_telegram_polling()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -202,6 +316,21 @@ class MainWindow(QMainWindow):
         self.add_button.setObjectName("primaryButton")
         self.add_button.clicked.connect(self._add_item)
         toolbar.addWidget(self.add_button)
+        self.telegram_button = QPushButton("↻ TELEGRAM")
+        self.telegram_button.setObjectName("primaryButton")
+        self.telegram_button.clicked.connect(self._manual_telegram)
+        toolbar.addWidget(self.telegram_button)
+        self.telegram_problems = QToolButton()
+        self.telegram_problems.setText("⚠")
+        self.telegram_problems.setToolTip("Проблемы Telegram")
+        self.telegram_problems.setVisible(False)
+        self.telegram_problems.clicked.connect(self._show_telegram_problems)
+        toolbar.addWidget(self.telegram_problems)
+        self.telegram_settings = QToolButton()
+        self.telegram_settings.setText("⚙")
+        self.telegram_settings.setToolTip("Настройки Telegram")
+        self.telegram_settings.clicked.connect(self._telegram_settings_dialog)
+        toolbar.addWidget(self.telegram_settings)
         root_layout.addLayout(toolbar)
 
         filters = QHBoxLayout()
@@ -233,6 +362,105 @@ class MainWindow(QMainWindow):
         self.scroll.setWidget(self.catalogue)
         root_layout.addWidget(self.scroll, 1)
         self.setCentralWidget(root)
+
+    def _start_telegram_polling(self) -> None:
+        with self.session_factory() as session:
+            token = TelegramRepository(session).token()
+        if not token or self._telegram_thread is not None:
+            return
+        self._telegram_api = TelegramApiClient(token)
+        self._telegram_importer = TelegramImportService(self.session_factory, self.photo_service, self._telegram_api)
+        self._telegram_thread = QThread(self)
+        self._telegram_qworker = TelegramQtWorker(self._telegram_importer, interval_seconds=50.0)
+        self._telegram_qworker.moveToThread(self._telegram_thread)
+        self._telegram_thread.started.connect(self._telegram_qworker.run)
+        self._telegram_qworker.diagnostics.connect(self._telegram_diagnostics)
+        self._telegram_qworker.finished.connect(self._telegram_thread.quit)
+        self._telegram_thread.finished.connect(self._telegram_thread.deleteLater)
+        self._telegram_thread.start()
+
+    def _stop_telegram_polling(self) -> None:
+        if self._telegram_qworker is not None:
+            self._telegram_qworker.stop()
+        if self._telegram_thread is not None:
+            self._telegram_thread.quit()
+            self._telegram_thread.wait(3000)
+        if self._telegram_api is not None:
+            self._telegram_api.close()
+        self._telegram_thread = None
+        self._telegram_qworker = None
+        self._telegram_importer = None
+        self._telegram_api = None
+
+    def _manual_telegram(self) -> None:
+        if self._telegram_qworker is None:
+            self._telegram_settings_dialog()
+            return
+        self.telegram_button.setText("↻ СИНХРОНИЗАЦИЯ…")
+        self._telegram_qworker.request_poll()
+
+    def _telegram_diagnostics(self, diagnostics: object) -> None:
+        values = diagnostics if isinstance(diagnostics, list) else []
+        imported = any(getattr(value, "status", "") == "imported" for value in values)
+        errors = [value for value in values if getattr(value, "status", "") == "error"]
+        if imported:
+            self.telegram_button.setText("✓ ОБНОВЛЕНО")
+            self.refresh()
+        elif errors:
+            self.telegram_button.setText("⚠ ОШИБКА TELEGRAM")
+            self.telegram_button.setToolTip(str(getattr(errors[-1], "message", "")))
+            self.telegram_problems.setVisible(True)
+        else:
+            self.telegram_button.setText("↻ TELEGRAM")
+        if self._telegram_importer:
+            discovered = list(self._telegram_importer.discovered_channels)
+            if discovered:
+                channel = discovered[-1]
+                self._telegram_importer.discovered_channels.remove(channel)
+                self._offer_channel_binding(channel)
+
+    def _show_telegram_problems(self) -> None:
+        with self.session_factory() as session:
+            diagnostics = TelegramRepository(session).recent_diagnostics()
+        if not diagnostics:
+            QMessageBox.information(self, "Telegram", "Проблем Telegram не найдено.")
+            return
+        lines = []
+        for diagnostic in diagnostics:
+            prefix = "Ошибка" if diagnostic.status == "error" else "Проблема"
+            lines.append(f"{prefix}: {diagnostic.error_message or 'Причина не указана.'}")
+        QMessageBox.information(self, "Проблемы Telegram", "\n".join(lines))
+
+    def _offer_channel_binding(self, channel: tuple[str, str | None]) -> None:
+        self._telegram_settings_dialog(channel)
+
+    def _telegram_settings_dialog(self, discovered: tuple[str, str | None] | None = None) -> None:
+        with self.session_factory() as session:
+            repository = TelegramRepository(session)
+            token_saved = bool(repository.token())
+            if discovered is None:
+                saved = repository.discovered_channels()
+                if saved:
+                    discovered = (saved[0].channel_id, saved[0].title)
+        dialog = TelegramSettingsDialog(
+            self.portfolios,
+            self.current_portfolio_id,
+            token_saved,
+            discovered,
+            self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        token, channel_id, portfolio_id = dialog.values()
+        with self.session_factory() as session:
+            repository = TelegramRepository(session)
+            if token:
+                repository.set_token(token)
+            if channel_id:
+                repository.bind_channel(portfolio_id, channel_id, discovered[1] if discovered else None)
+            session.commit()
+        self._stop_telegram_polling()
+        self._start_telegram_polling()
 
     def _load_portfolios(self) -> None:
         with self.session_factory() as session:
@@ -526,6 +754,10 @@ class MainWindow(QMainWindow):
                 ItemRepository(session).soft_delete(current)
                 session.commit()
         self.refresh()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._stop_telegram_polling()
+        super().closeEvent(event)
 
 
 class QFrameCard(QWidget):

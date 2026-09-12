@@ -23,3 +23,17 @@ class PhotoService:
         destination = self.paths.photos / f"{uuid.uuid4().hex}{suffix}"
         shutil.copy2(source_path, destination)
         return str(destination)
+
+    def save_photo_bytes(self, content: bytes, suffix: str = ".jpg") -> str:
+        """Store a downloaded image once and return its local path."""
+
+        if not content:
+            raise ValueError("Telegram вернул пустое фото.")
+        normalized_suffix = suffix.lower() if suffix else ".jpg"
+        if not normalized_suffix.startswith("."):
+            normalized_suffix = f".{normalized_suffix}"
+        if normalized_suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}:
+            normalized_suffix = ".jpg"
+        destination = self.paths.photos / f"{uuid.uuid4().hex}{normalized_suffix}"
+        destination.write_bytes(content)
+        return str(destination)
