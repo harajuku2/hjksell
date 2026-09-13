@@ -5,12 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import AppPaths, ensure_app_directories
 from .models import Base
+from .migrations import upgrade_database
 
 
 def create_engine_for_path(database_path: Path):
@@ -35,7 +36,12 @@ def initialize_database(paths: AppPaths | None = None) -> tuple[Engine, Callable
 
     resolved_paths = ensure_app_directories(paths)
     engine = create_engine_for_path(resolved_paths.database)
-    Base.metadata.create_all(engine)
+    if inspect(engine).has_table("alembic_version"):
+        upgrade_database(engine, resolved_paths)
+        Base.metadata.create_all(engine)
+    else:
+        Base.metadata.create_all(engine)
+        upgrade_database(engine, resolved_paths)
     factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
     from ..repositories.portfolio_repository import PortfolioRepository

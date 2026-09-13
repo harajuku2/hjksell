@@ -173,10 +173,12 @@ class TelegramImportService:
         session_factory: Callable,
         photo_service: PhotoService,
         api: TelegramApiClient,
+        portfolio_id: int = 1,
     ) -> None:
         self.session_factory = session_factory
         self.photo_service = photo_service
         self.api = api
+        self.portfolio_id = portfolio_id
         self.diagnostics: list[ImportDiagnostic] = []
         self.discovered_channels: list[tuple[str, str | None]] = []
 
@@ -193,8 +195,8 @@ class TelegramImportService:
             if isinstance(update, dict) and isinstance(update.get("update_id"), int):
                 with self.session_factory() as session:
                     repository = TelegramRepository(session)
-                    repository.record_diagnostic(update["update_id"], "ignored", str(exc))
-                    repository.set_offset(update["update_id"] + 1)
+                    repository.record_diagnostic(update["update_id"], "ignored", str(exc), self.portfolio_id)
+                    repository.set_offset(self.portfolio_id, update["update_id"] + 1)
                     session.commit()
             result = ImportDiagnostic(update_id, "ignored", str(exc))
             self._diagnostic(result)
@@ -204,13 +206,13 @@ class TelegramImportService:
         try:
             with self.session_factory() as session:
                 telegram = TelegramRepository(session)
-                if telegram.has_import(parsed.channel_id, parsed.message_id, parsed.update_id):
-                    telegram.set_offset(parsed.update_id + 1)
+                if telegram.has_import(self.portfolio_id, parsed.channel_id, parsed.message_id, parsed.update_id):
+                    telegram.set_offset(self.portfolio_id, parsed.update_id + 1)
                     session.commit()
                     result = ImportDiagnostic(parsed.update_id, "duplicate", "Дубликат уже импортирован.", parsed.channel_id)
                     self._diagnostic(result)
                     return result
-                channel = telegram.channel(parsed.channel_id)
+                channel = telegram.channel(parsed.channel_id, self.portfolio_id)
                 if channel is None or channel.portfolio_id is None:
                     if (parsed.channel_id, parsed.title) not in self.discovered_channels:
                         self.discovered_channels.append((parsed.channel_id, parsed.title))
@@ -219,10 +221,11 @@ class TelegramImportService:
                         parsed.update_id,
                         "ignored",
                         "Канал не привязан.",
+                        self.portfolio_id,
                         parsed.channel_id,
                         parsed.message_id,
                     )
-                    telegram.set_offset(parsed.update_id + 1)
+                    telegram.set_offset(self.portfolio_id, parsed.update_id + 1)
                     session.commit()
                     result = ImportDiagnostic(parsed.update_id, "ignored", "Канал не привязан.", parsed.channel_id)
                     self._diagnostic(result)
@@ -238,8 +241,8 @@ class TelegramImportService:
                 item.telegram_channel_id = parsed.channel_id
                 item.telegram_message_id = parsed.message_id
                 item.telegram_update_id = parsed.update_id
-                telegram.record_import(parsed.channel_id, parsed.message_id, parsed.update_id)
-                telegram.set_offset(parsed.update_id + 1)
+                telegram.record_import(self.portfolio_id, parsed.channel_id, parsed.message_id, parsed.update_id)
+                telegram.set_offset(self.portfolio_id, parsed.update_id + 1)
                 session.commit()
             result = ImportDiagnostic(parsed.update_id, "imported", "Покупка добавлена.", parsed.channel_id)
             self._diagnostic(result)
@@ -256,6 +259,7 @@ class TelegramImportService:
                         update["update_id"],
                         "error",
                         _safe_error(exc),
+                        self.portfolio_id,
                         parsed.channel_id,
                         parsed.message_id,
                     )
@@ -267,14 +271,19 @@ class TelegramImportService:
 
     def poll_once(self) -> list[ImportDiagnostic]:
         with self.session_factory() as session:
-            token = TelegramRepository(session).token()
-            offset = TelegramRepository(session).offset()
+            token = TelegramRepository(session).token(self.portfolio_id)
+            offset = TelegramRepository(session).offset(self.portfolio_id)
         if not token:
             result = ImportDiagnostic(None, "error", "Токен Telegram не настроен.")
             self._diagnostic(result)
             return [result]
         updates = self.api.get_updates(offset=offset, timeout=50)
         return [self.import_update(update) for update in updates]
+
+    def stop(self) -> None:
+        """Cancel an active long poll by closing its client connection."""
+
+        self.api.close()
 
 
 def _safe_error(exc: Exception) -> str:
@@ -328,6 +337,9 @@ class TelegramWorker:
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        stop = getattr(self.importer, "stop", None)
+        if callable(stop):
+            stop()
 
     def request_poll(self) -> None:
         """Wake the long-poll loop for the manual ↻ Telegram action."""
@@ -338,7 +350,7 @@ class TelegramWorker:
 class TelegramQtWorker(QObject):
     """QObject adapter used by the desktop UI's dedicated QThread."""
 
-    diagnostics = Signal(object)
+    diagnostics = Signal(int, object)
     finished = Signal()
 
     def __init__(self, importer: TelegramImportService, interval_seconds: float = 50.0) -> None:
@@ -348,9 +360,13 @@ class TelegramQtWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            self.worker.run(lambda values: self.diagnostics.emit(values))
+            self.worker.run(self._emit_diagnostics)
         finally:
             self.finished.emit()
+
+    @Slot(object)
+    def _emit_diagnostics(self, values: list[ImportDiagnostic]) -> None:
+        self.diagnostics.emit(self.worker.importer.portfolio_id, values)
 
     def request_poll(self) -> None:
         self.worker.request_poll()

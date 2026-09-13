@@ -86,22 +86,35 @@ class ExchangeRateHistory(Base):
 
 class TelegramChannel(Base):
     __tablename__ = "telegram_channels"
+    __table_args__ = (UniqueConstraint("portfolio_id", "channel_id", name="uq_telegram_channel_portfolio"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     portfolio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("portfolios.id"))
-    channel_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
+
+
+class TelegramConfig(Base):
+    __tablename__ = "telegram_configs"
+
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), primary_key=True)
+    token: Mapped[Optional[str]] = mapped_column(String(2048))
+    update_offset: Mapped[Optional[int]] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=False
+    )
 
 
 class TelegramImport(Base):
     __tablename__ = "telegram_imports"
     __table_args__ = (
-        Index("uq_telegram_import_channel_message", "channel_id", "message_id", unique=True),
-        Index("uq_telegram_import_update", "update_id", unique=True),
+        Index("uq_telegram_import_portfolio_channel_message", "portfolio_id", "channel_id", "message_id", unique=True),
+        Index("uq_telegram_import_portfolio_update", "portfolio_id", "update_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("portfolios.id"))
     channel_id: Mapped[Optional[str]] = mapped_column(String(128))
     message_id: Mapped[Optional[int]] = mapped_column(Integer)
     update_id: Mapped[int] = mapped_column(Integer, nullable=False)

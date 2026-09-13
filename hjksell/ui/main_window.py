@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QThread, Qt, Signal
-from PySide6.QtGui import QAction, QPixmap
+from PySide6.QtCore import QDate, QThread, QUrl, Qt, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -50,6 +51,8 @@ from ..services.telegram import (
 )
 from ..repositories.telegram_repository import TelegramRepository
 from .analytics_window import AnalyticsWindow
+
+logger = logging.getLogger(__name__)
 
 
 class ClickableLabel(QLabel):
@@ -206,6 +209,9 @@ class TelegramSettingsDialog(QDialog):
         self.validation = QLabel("Токен сохранён." if saved_token else "Токен не задан.")
         layout.addRow("Bot Token", token_widget)
         layout.addRow("", self.validation)
+        open_data = QPushButton("Открыть папку данных")
+        open_data.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(get_app_paths().root))))
+        layout.addRow("", open_data)
 
         self.channel_id = QLineEdit()
         self.channel_id.setPlaceholderText("например, -1001234567890")
@@ -255,6 +261,10 @@ class TelegramSettingsDialog(QDialog):
 
     def _validation_finished(self, ok: bool, message: str) -> None:
         self.validation.setText(("✓ " if ok else "⚠ ") + message)
+        validation_thread = self._validation_thread
+        if validation_thread is not None and validation_thread.isRunning():
+            validation_thread.quit()
+            validation_thread.wait(3000)
         self._validation_thread = None
         self._validation_worker = None
 
@@ -281,10 +291,10 @@ class MainWindow(QMainWindow):
         self.photo_service = PhotoService(self.paths)
         self.current_filter = "all"
         self.current_portfolio_id: int | None = None
-        self._telegram_thread: QThread | None = None
-        self._telegram_qworker: TelegramQtWorker | None = None
-        self._telegram_importer: TelegramImportService | None = None
-        self._telegram_api: TelegramApiClient | None = None
+        self._telegram_threads: dict[int, QThread] = {}
+        self._telegram_qworkers: dict[int, TelegramQtWorker] = {}
+        self._telegram_importers: dict[int, TelegramImportService] = {}
+        self._telegram_apis: dict[int, TelegramApiClient] = {}
         self._analytics_window: AnalyticsWindow | None = None
         self._build_ui()
         self._load_portfolios()
@@ -385,42 +395,56 @@ class MainWindow(QMainWindow):
         self._analytics_window.show()
 
     def _start_telegram_polling(self) -> None:
-        with self.session_factory() as session:
-            token = TelegramRepository(session).token()
-        if not token or self._telegram_thread is not None:
-            return
-        self._telegram_api = TelegramApiClient(token)
-        self._telegram_importer = TelegramImportService(self.session_factory, self.photo_service, self._telegram_api)
-        self._telegram_thread = QThread(self)
-        self._telegram_qworker = TelegramQtWorker(self._telegram_importer, interval_seconds=50.0)
-        self._telegram_qworker.moveToThread(self._telegram_thread)
-        self._telegram_thread.started.connect(self._telegram_qworker.run)
-        self._telegram_qworker.diagnostics.connect(self._telegram_diagnostics)
-        self._telegram_qworker.finished.connect(self._telegram_thread.quit)
-        self._telegram_thread.finished.connect(self._telegram_thread.deleteLater)
-        self._telegram_thread.start()
+        for portfolio in self.portfolios:
+            portfolio_id = portfolio.id
+            with self.session_factory() as session:
+                token = TelegramRepository(session).token(portfolio_id)
+            if not token or portfolio_id in self._telegram_threads:
+                continue
+            api = TelegramApiClient(token)
+            importer = TelegramImportService(self.session_factory, self.photo_service, api, portfolio_id)
+            thread = QThread(self)
+            thread.setObjectName(f"telegram-polling-{portfolio_id}")
+            worker = TelegramQtWorker(importer, interval_seconds=50.0)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.diagnostics.connect(self._telegram_diagnostics)
+            worker.finished.connect(thread.quit)
+            thread.finished.connect(thread.deleteLater)
+            self._telegram_apis[portfolio_id] = api
+            self._telegram_importers[portfolio_id] = importer
+            self._telegram_qworkers[portfolio_id] = worker
+            self._telegram_threads[portfolio_id] = thread
+            thread.start()
 
-    def _stop_telegram_polling(self) -> None:
-        if self._telegram_qworker is not None:
-            self._telegram_qworker.stop()
-        if self._telegram_thread is not None:
-            self._telegram_thread.quit()
-            self._telegram_thread.wait(3000)
-        if self._telegram_api is not None:
-            self._telegram_api.close()
-        self._telegram_thread = None
-        self._telegram_qworker = None
-        self._telegram_importer = None
-        self._telegram_api = None
+    def _stop_telegram_polling(self) -> bool:
+        for worker in self._telegram_qworkers.values():
+            worker.stop()
+        for portfolio_id, thread in self._telegram_threads.items():
+            thread.quit()
+            thread.wait(3000)
+        still_running = [portfolio_id for portfolio_id, thread in self._telegram_threads.items() if thread.isRunning()]
+        if still_running:
+            logger.error("telegram worker reconfiguration: stop failed portfolios=%s", still_running)
+            return False
+        for api in self._telegram_apis.values():
+            api.close()
+        self._telegram_threads.clear()
+        self._telegram_qworkers.clear()
+        self._telegram_importers.clear()
+        self._telegram_apis.clear()
+        return True
 
     def _manual_telegram(self) -> None:
-        if self._telegram_qworker is None:
+        if not self._telegram_qworkers:
             self._telegram_settings_dialog()
             return
         self.telegram_button.setText("↻ СИНХРОНИЗАЦИЯ…")
-        self._telegram_qworker.request_poll()
+        for worker in self._telegram_qworkers.values():
+            worker.request_poll()
 
-    def _telegram_diagnostics(self, diagnostics: object) -> None:
+    @Slot(int, object)
+    def _telegram_diagnostics(self, portfolio_id: int, diagnostics: object) -> None:
         values = diagnostics if isinstance(diagnostics, list) else []
         imported = any(getattr(value, "status", "") == "imported" for value in values)
         errors = [value for value in values if getattr(value, "status", "") == "error"]
@@ -433,12 +457,13 @@ class MainWindow(QMainWindow):
             self.telegram_problems.setVisible(True)
         else:
             self.telegram_button.setText("↻ TELEGRAM")
-        if self._telegram_importer:
-            discovered = list(self._telegram_importer.discovered_channels)
+        importer = self._telegram_importers.get(portfolio_id)
+        if importer:
+            discovered = list(importer.discovered_channels)
             if discovered:
                 channel = discovered[-1]
-                self._telegram_importer.discovered_channels.remove(channel)
-                self._offer_channel_binding(channel)
+                importer.discovered_channels.remove(channel)
+                self._offer_channel_binding(channel, portfolio_id)
 
     def _show_telegram_problems(self) -> None:
         with self.session_factory() as session:
@@ -452,36 +477,42 @@ class MainWindow(QMainWindow):
             lines.append(f"{prefix}: {diagnostic.error_message or 'Причина не указана.'}")
         QMessageBox.information(self, "Проблемы Telegram", "\n".join(lines))
 
-    def _offer_channel_binding(self, channel: tuple[str, str | None]) -> None:
-        self._telegram_settings_dialog(channel)
+    def _offer_channel_binding(self, channel: tuple[str, str | None], portfolio_id: int) -> None:
+        self._telegram_settings_dialog(channel, portfolio_id)
 
-    def _telegram_settings_dialog(self, discovered: tuple[str, str | None] | None = None) -> None:
+    def _telegram_settings_dialog(
+        self,
+        discovered: tuple[str, str | None] | None = None,
+        portfolio_id: int | None = None,
+    ) -> None:
+        target_portfolio_id = portfolio_id if portfolio_id is not None else self.current_portfolio_id
         with self.session_factory() as session:
             repository = TelegramRepository(session)
-            saved_token = repository.token()
+            saved_token = repository.token(target_portfolio_id) if target_portfolio_id is not None else None
             if discovered is None:
                 saved = repository.discovered_channels()
                 if saved:
                     discovered = (saved[0].channel_id, saved[0].title)
         dialog = TelegramSettingsDialog(
             self.portfolios,
-            self.current_portfolio_id,
+            target_portfolio_id,
             saved_token,
             discovered,
             self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        result = dialog.exec()
+        if result != QDialog.DialogCode.Accepted:
             return
         token, channel_id, portfolio_id = dialog.values()
         with self.session_factory() as session:
             repository = TelegramRepository(session)
-            if token:
-                repository.set_token(token)
+            if token and target_portfolio_id is not None:
+                repository.set_token(target_portfolio_id, token)
             if channel_id:
                 repository.bind_channel(portfolio_id, channel_id, discovered[1] if discovered else None)
             session.commit()
-        self._stop_telegram_polling()
-        self._start_telegram_polling()
+        if self._stop_telegram_polling():
+            self._start_telegram_polling()
 
     def _load_portfolios(self) -> None:
         with self.session_factory() as session:
