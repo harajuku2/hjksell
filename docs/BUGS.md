@@ -26,6 +26,6 @@ Eight-digit strings such as `#a05bff44` were interpreted by Qt as `#AARRGGBB`, p
 
 The shared old QLineEdit styling affected `exchangeRate`, `monthlyExpense`, and `saleInput`. Current Catalog-scoped selectors use graphite normal state and violet focus. Preserve this without broad Analytics repainting.
 
-## Current experimental state
+## FIXED — Catalog financial metric rendering
 
-The Catalog loss-metric issue is corrected in the current uncommitted worktree: `catalog_metric_tone()` and `tone` selectors cover Profit, X, ROI, zero disposal, and cancellation. Item result labels are repolished after their row is attached below `catalogRoot`, so the scoped selectors match during the real MainWindow paint path. This remains regression-sensitive until the user completes real screenshot/manual verification. If current code differs, inspect it before changing this entry.
+The Catalog loss-metric issue was caused by scoped dynamic-property selectors not being repolished after Item rows were attached below `catalogRoot`. `catalog_metric_tone()` and `tone` selectors cover Profit, X, ROI, zero disposal, and cancellation; Item result labels are repolished after attachment so the real MainWindow paint path uses the intended green, red, or neutral colors. Render-level regression coverage is present, and the packaged EXE was manually accepted.

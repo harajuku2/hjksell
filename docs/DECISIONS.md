@@ -40,6 +40,6 @@
 
 **Context:** post-V1 Analytics/catalog terminology. **Decision:** visible total sale amount is `ПРОДАЖИ` / `ПРОДАЖИ ПО МЕСЯЦАМ`; internal calculation fields such as `revenue` remain unchanged. `БЕЗ ВЫРУЧКИ` remains the intentional zero-sale filter.
 
-## Neon Graphite experiment
+## Neon Graphite visual direction
 
-**Context:** current uncommitted Catalog experiment. **Decision:** use near-black graphite, Onest, limited gradient branding, selective violet interaction light, and independent financial semantic colors. **Reason:** premium product direction without gaming/RGB styling. **Do not break:** violet is never a substitute for positive green, negative red, amber disposal status, or neutral values. Analytics remains frozen during the Catalog experiment.
+**Context:** approved Catalog and Analytics visual pass recorded in checkpoint `d8a8e66`. **Decision:** use near-black graphite, Onest, limited gradient branding, selective violet interaction light, and independent financial semantic colors. **Reason:** premium product direction without gaming/RGB styling. **Do not break:** violet is never a substitute for positive green, negative red, amber disposal status, or neutral values. Analytics preserves the approved four groups, order, calculations, and semantic tones.

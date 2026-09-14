@@ -28,6 +28,6 @@ For regressions use: reproduce → inspect traceback/logs → prove root cause �
 
 Tests should use temporary directories or in-memory SQLite. Production database, photos, logs, Telegram settings, and imports under `%LOCALAPPDATA%\HJKsell` are out of scope. Never print token values.
 
-## Current uncommitted work
+## Current checkpoint state
 
-The worktree after checkpoint `febdb68` contains an uncommitted Neon Graphite Catalog experiment. Current code includes Onest assets and OFL license, QFontDatabase loading, Catalog-scoped styling, gradient branding, AmbientHeader, graphite inputs/violet focus, compact Item metrics, semantic Catalog metric tones, and related tests. Treat this as experimental and not released. A real screenshot/manual review is still required before any packaging or checkpoint decision.
+Checkpoint commit `d8a8e66` records the approved Neon Graphite Catalog and Analytics work, Onest assets and OFL license, QFontDatabase loading, scoped styling, gradient branding, AmbientHeader, graphite inputs/violet focus, compact Item metrics, semantic metric tones, and related tests. The Catalog and Analytics UI, including the financial render fix, were manually accepted in the freshly packaged ONEDIR EXE. The current worktree contains only the intentional `build.ps1` packaging-resource addition pending checkpoint commit.

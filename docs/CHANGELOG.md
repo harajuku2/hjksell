@@ -16,9 +16,9 @@
 - Item lower metrics label-above-value layout.
 - Checkpoint suite was 55 passed.
 
-## Current uncommitted Neon Graphite experiment
+## Neon Graphite and packaging checkpoint — `d8a8e66` plus current packaging change
 
-Catalog-only work after `febdb68` includes:
+The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e66` and includes:
 
 - Onest variable font and SIL OFL license under `assets/fonts/onest/`;
 - QFontDatabase loading and gradient HJKsell branding;
@@ -28,4 +28,8 @@ Catalog-only work after `febdb68` includes:
 - Catalog semantic tone handling for Profit/X/ROI;
 - regression tests for glow state and financial semantic transitions.
 
-The approved Catalog pass and the separate Analytics visual pass are uncommitted and not a release. Analytics keeps the four approved groups/order, calculations, and semantic tones while using scoped Neon Graphite styling, Onest gradient title, compact KPI cells, and violet chart accents. Current observed suite after the latest changes is 62 passed; verify with the command in AGENTS.md.
+- Analytics keeps the four approved groups/order, calculations, and semantic tones while using scoped Neon Graphite styling, Onest gradient title, compact KPI cells, and violet chart accents.
+- The Catalog financial semantic render bug is fixed with production-level repolish and render regression coverage.
+- The full suite is 62 passed.
+- The current `build.ps1` change adds the Onest font directory to the existing PyInstaller ONEDIR package.
+- The resulting EXE was manually tested successfully with existing Items, photos, portfolios, Catalog, Analytics, and user data intact.
