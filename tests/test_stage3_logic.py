@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,7 +23,8 @@ from hjksell.services.items import ItemService
 from hjksell.services.photos import PhotoService
 from hjksell.services.finance import item_metrics
 from hjksell.services.portfolios import PortfolioService
-from hjksell.ui.main_window import MainWindow, catalog_metric_tone, item_matches_catalog_filter
+from hjksell.ui.main_window import MainWindow, QFrameCard, catalog_metric_tone, item_matches_catalog_filter
+from hjksell.ui.neon_widgets import CatalogBackdrop, PhotoSurface
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
@@ -402,7 +403,7 @@ def test_main_window_reloads_portfolio_tabs_without_invalid_qt_api(tmp_path, mon
         app.processEvents()
 
 
-def test_catalog_interaction_glows_are_violet_and_not_stale(tmp_path, monkeypatch) -> None:
+def test_catalog_interaction_surfaces_use_state_without_rectangular_effects(tmp_path, monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -422,28 +423,70 @@ def test_catalog_interaction_glows_are_violet_and_not_stale(tmp_path, monkeypatc
     window = MainWindow(session_factory=factory, paths=paths)
     try:
         window._portfolio_changed(1)
-        portfolio_effect = window.portfolio_tabs.graphicsEffect()
-        assert portfolio_effect is not None
-        portfolio_color = portfolio_effect.color()
-        assert portfolio_color.red() > portfolio_color.blue() * 0.5
-        assert portfolio_color.blue() > portfolio_color.green() * 1.5
+        assert window.portfolio_tabs.graphicsEffect() is None
+        assert window.portfolio_tabs.property("active") is True
 
         window._set_filter("all")
         active_filter = window.filter_buttons["all"]
         inactive_filter = window.filter_buttons["stock"]
-        filter_effect = active_filter.graphicsEffect()
-        assert filter_effect is not None
+        assert active_filter.graphicsEffect() is None
         assert inactive_filter.graphicsEffect() is None
-        filter_color = filter_effect.color()
-        assert filter_color.red() > filter_color.green() * 1.5
-        assert filter_color.blue() > filter_color.green() * 1.5
+        assert active_filter.isChecked()
+        assert not inactive_filter.isChecked()
 
         window._set_filter("stock")
         assert active_filter.graphicsEffect() is None
-        assert inactive_filter.graphicsEffect() is not None
+        assert inactive_filter.graphicsEffect() is None
+        assert not active_filter.isChecked()
+        assert inactive_filter.isChecked()
     finally:
         window.close()
         app.processEvents()
+
+
+def test_catalog_v2_surface_contract(tmp_path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    previous_stylesheet = app.styleSheet()
+    app.setStyleSheet(build_stylesheet("Onest"))
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    with factory() as session:
+        PortfolioRepository(session).ensure_default_portfolios()
+        session.commit()
+    paths = AppPaths(
+        tmp_path / "root",
+        tmp_path / "data",
+        tmp_path / "data" / "photos",
+        tmp_path / "logs",
+        tmp_path / "db.sqlite",
+        tmp_path / "logs" / "app.log",
+    )
+    monkeypatch.setattr(MainWindow, "_start_telegram_polling", lambda self: None)
+    window = MainWindow(session_factory=factory, paths=paths)
+    card = QFrameCard()
+    photo = PhotoSurface()
+    try:
+        assert isinstance(window.centralWidget(), CatalogBackdrop)
+        assert window.scroll.objectName() == "catalogWorkspace"
+        assert window.catalogue.objectName() == "catalogueSurface"
+        assert "QScrollBar::handle:vertical" in app.styleSheet()
+        assert "QToolButton#itemMenu::menu-indicator" in app.styleSheet()
+        assert "QFrame#catalogItemDivider" not in app.styleSheet()
+        assert window.portfolio_tabs.graphicsEffect() is None
+        assert all(button.graphicsEffect() is None for button in window.filter_buttons.values())
+        assert card.objectName() == "itemCard"
+        card.resize(1000, 220)
+        card.set_island_width(620)
+        assert card._island_width == 620
+        assert card._island_width < card.width()
+        assert photo.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    finally:
+        window.close()
+        card.deleteLater()
+        photo.deleteLater()
+        app.processEvents()
+        app.setStyleSheet(previous_stylesheet)
 
 
 def test_sale_price_can_be_edited_without_changing_sale_date() -> None:

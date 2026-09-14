@@ -51,10 +51,23 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             font-size: 13px;
         }
         QWidget#catalogRoot {
-            background-color: #09090b;
+            background: transparent;
             color: #fcf4ff;
             font-family: "%s", "Segoe UI Variable", "Segoe UI";
             font-size: %dpx;
+        }
+        QWidget#catalogRoot QWidget {
+            background: transparent;
+        }
+        QScrollArea#catalogWorkspace {
+            background: transparent;
+            border: none;
+        }
+        QScrollArea#catalogWorkspace > QWidget > QWidget#qt_scrollarea_viewport {
+            background: transparent;
+        }
+        QWidget#catalogueSurface {
+            background: transparent;
         }
         QWidget#catalogRoot QLabel#metricValue,
         QWidget#catalogRoot QLabel#catalogKpiPrimaryValue,
@@ -77,10 +90,10 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             font-size: %dpx;
         }
         QTabBar#catalogPortfolioTabs::tab {
-            background: #101014;
+            background: rgba(20, 19, 31, 190);
             color: #858094;
-            border: 1px solid #24202d;
-            border-radius: 7px;
+            border: 1px solid rgba(126, 104, 164, 100);
+            border-radius: 11px;
             padding: 9px 16px;
             margin-right: 4px;
             font-size: 15px;
@@ -91,14 +104,14 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             color: #d9c9ee;
         }
         QTabBar#catalogPortfolioTabs::tab:selected {
-            background: #241737;
+            background: rgba(72, 42, 108, 220);
             color: #f5eaff;
-            border-color: #8a55c7;
+            border-color: #bb8cf0;
         }
         QToolButton#catalogRenameButton {
-            background: #15121b;
-            border: 1px solid #292132;
-            border-radius: 7px;
+            background: rgba(27, 23, 40, 200);
+            border: 1px solid rgba(147, 112, 196, 120);
+            border-radius: 10px;
             color: #bfa8d8;
             padding: 6px 9px;
             font-size: 15px;
@@ -120,9 +133,9 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             padding-right: 7px;
         }
         QToolButton#catalogFilterButton {
-            background: #101014;
-            border: 1px solid #211e28;
-            border-radius: 6px;
+            background: rgba(20, 19, 31, 190);
+            border: 1px solid rgba(126, 104, 164, 88);
+            border-radius: 10px;
             color: #87818f;
             padding: 8px 12px;
             font-size: 14px;
@@ -133,14 +146,13 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             color: #d8cbe4;
         }
         QToolButton#catalogFilterButton:checked {
-            background: #2b1b40;
-            border-color: #6e478e;
+            background: rgba(74, 43, 111, 220);
+            border-color: #b589ec;
             color: #f5eaff;
         }
         QGroupBox#catalogMonthGroup {
-            background-color: #101014;
-            border: 1px solid #25212e;
-            border-radius: 11px;
+            background: transparent;
+            border: none;
             margin-top: 15px;
             padding: 12px 10px 10px;
         }
@@ -148,9 +160,9 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             color: #ded2e9;
         }
         QWidget#catalogKpiStrip {
-            background-color: #15121b;
-            border: 1px solid #211c2a;
-            border-radius: 9px;
+            background: rgba(31, 26, 47, 118);
+            border: 1px solid rgba(163, 128, 213, 72);
+            border-radius: 14px;
         }
         QWidget#catalogKpiStrip QWidget {
             background: transparent;
@@ -160,6 +172,15 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             color: #f5eaff;
             font-size: %dpx;
             font-weight: 700;
+        }
+        QWidget#catalogKpiStrip QLabel#catalogKpiPrimaryValue[tone="positive"] {
+            color: #76c69a;
+        }
+        QWidget#catalogKpiStrip QLabel#catalogKpiPrimaryValue[tone="negative"] {
+            color: #d98282;
+        }
+        QWidget#catalogKpiStrip QLabel#catalogKpiPrimaryValue[tone="neutral"] {
+            color: #f4f7fb;
         }
         QWidget#catalogKpiStrip QLabel#profitValue {
             font-size: %dpx;
@@ -178,13 +199,15 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             color: #f4f7fb;
         }
         QWidget#catalogRoot QWidget#itemCard {
-            background-color: #17151e;
-            border: 1px solid #332b3d;
-            border-radius: 10px;
+            background: transparent;
+            border: none;
         }
         QWidget#catalogRoot QWidget#itemCard:hover {
-            background-color: #191620;
-            border-color: #493460;
+            background: transparent;
+        }
+        QWidget#catalogRoot QWidget#itemCard QWidget {
+            background: transparent;
+            border: none;
         }
         QWidget#catalogRoot QLineEdit#saleInput:focus {
             border-color: #a66be0;
@@ -225,10 +248,10 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
         QWidget#catalogRoot QLineEdit#monthlyOtherIncome,
         QWidget#catalogRoot QLineEdit#monthlyAdvertising,
         QWidget#catalogRoot QLineEdit#saleInput {
-            border: 1px solid #393340;
-            border-radius: 6px;
+            border: 1px solid rgba(151, 124, 193, 130);
+            border-radius: 11px;
             padding: 7px 9px;
-            background: #101014;
+            background: rgba(21, 19, 32, 205);
             color: #f5effa;
         }
         QWidget#catalogRoot QLineEdit#exchangeRate,
@@ -242,8 +265,8 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
         QWidget#catalogRoot QLineEdit#monthlyOtherIncome:focus,
         QWidget#catalogRoot QLineEdit#monthlyAdvertising:focus,
         QWidget#catalogRoot QLineEdit#saleInput:focus {
-            border-color: #a66be0;
-            background: #15101c;
+            border-color: #c79af5;
+            background: rgba(48, 30, 72, 225);
         }
         QLabel#catalogBrand {
             background: transparent;
@@ -263,22 +286,22 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             background: transparent;
         }
         QPushButton#catalogSecondaryButton {
-            background: #15151b;
-            border: 1px solid #2a2631;
-            border-radius: 7px;
+            background: rgba(24, 23, 35, 205);
+            border: 1px solid rgba(139, 118, 171, 105);
+            border-radius: 11px;
             color: #d7cfdf;
             padding: 8px 12px;
             font-weight: 700;
         }
         QPushButton#catalogSecondaryButton:hover {
-            background: #1c1922;
-            border-color: #544766;
+            background: rgba(54, 38, 75, 225);
+            border-color: #aa82db;
             color: #f4eaff;
         }
         QPushButton#catalogPrimaryButton {
-            background: #7f4eb2;
-            border: 1px solid #a36bd1;
-            border-radius: 7px;
+            background: rgba(111, 68, 164, 235);
+            border: 1px solid #c18af0;
+            border-radius: 11px;
             color: #fffaff;
             padding: 8px 14px;
             font-weight: 800;
@@ -296,7 +319,7 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             font-size: 16px;
         }
         QToolButton#catalogIconButton:hover {
-            background: #1d1824;
+            background: rgba(64, 42, 88, 210);
             color: #e9d7fb;
         }
         QTabBar::tab {
@@ -574,10 +597,43 @@ def build_stylesheet(typography: Typography | str | None = None) -> str:
             background: #86a9d2;
         }
         QToolButton#itemMenu {
+            background: rgba(30, 25, 45, 220);
+            border: 1px solid rgba(161, 126, 209, 125);
+            border-radius: 9px;
+            color: #cbb5e7;
+            padding: 2px 8px;
+            font-size: 16px;
+        }
+        QToolButton#itemMenu::menu-indicator {
+            image: none;
+            width: 0px;
+        }
+        QToolButton#itemMenu:hover {
+            background: rgba(82, 48, 117, 230);
+            border-color: #c795f2;
+            color: #fff7ff;
+        }
+        QScrollBar:vertical {
+            background: rgba(9, 10, 17, 90);
+            width: 11px;
+            margin: 6px 2px 6px 4px;
+            border-radius: 5px;
+        }
+        QScrollBar::handle:vertical {
+            background: rgba(159, 124, 211, 145);
+            min-height: 52px;
+            border-radius: 5px;
+        }
+        QScrollBar::handle:vertical:hover,
+        QScrollBar::handle:vertical:pressed {
+            background: rgba(201, 157, 247, 220);
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical,
+        QScrollBar::add-page:vertical,
+        QScrollBar::sub-page:vertical {
             background: transparent;
             border: none;
-            color: #7f8996;
-            font-size: 20px;
         }
         QPushButton {
             background: #202833;
@@ -624,6 +680,11 @@ def main() -> int:
     application.setFont(typography.font(TypographyRole.UI_CONTROL, point_size=10))
     application.setStyleSheet(build_stylesheet(typography))
 
-    window = MainWindow(session_factory=session_factory, paths=paths, typography=typography)
+    window = MainWindow(
+        session_factory=session_factory,
+        paths=paths,
+        typography=typography,
+        item_material_path=resource_path("assets/ui/item-edge-material.png"),
+    )
     window.show()
     return application.exec()

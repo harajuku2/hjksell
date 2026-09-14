@@ -9,15 +9,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QThread, QUrl, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QPixmap
+from PySide6.QtCore import QPoint, QDate, QThread, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
-    QGraphicsDropShadowEffect,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -55,7 +55,7 @@ from ..services.telegram import (
 )
 from ..repositories.telegram_repository import TelegramRepository
 from .analytics_window import AnalyticsWindow
-from .neon_widgets import AmbientHeader, GradientLabel
+from .neon_widgets import AmbientHeader, CatalogBackdrop, GradientLabel, PhotoSurface
 from .typography import Typography, TypographyRole
 
 logger = logging.getLogger(__name__)
@@ -306,6 +306,7 @@ class MainWindow(QMainWindow):
         session_factory: Callable | None = None,
         paths: AppPaths | None = None,
         typography: Typography | None = None,
+        item_material_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("HJKsell")
@@ -313,6 +314,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 600)
         self.paths = ensure_app_directories(paths or get_app_paths())
         self.typography = typography or Typography.fallback()
+        self.item_material_path = item_material_path
         if session_factory is None:
             _engine, session_factory = initialize_database(self.paths)
         self.session_factory = session_factory
@@ -329,7 +331,7 @@ class MainWindow(QMainWindow):
         self._start_telegram_polling()
 
     def _build_ui(self) -> None:
-        root = QWidget()
+        root = CatalogBackdrop()
         root.setObjectName("catalogRoot")
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(22, 18, 22, 16)
@@ -428,9 +430,13 @@ class MainWindow(QMainWindow):
         root_layout.addLayout(filters)
 
         self.scroll = QScrollArea()
+        self.scroll.setObjectName("catalogWorkspace")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.catalogue = QWidget()
+        self.catalogue.setObjectName("catalogueSurface")
+        self.catalogue.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.catalogue_layout = QVBoxLayout(self.catalogue)
         self.catalogue_layout.setContentsMargins(0, 0, 8, 0)
         self.catalogue_layout.setSpacing(12)
@@ -608,11 +614,11 @@ class MainWindow(QMainWindow):
             self.refresh()
 
     def _set_portfolio_glow(self) -> None:
-        glow = QGraphicsDropShadowEffect(self.portfolio_tabs)
-        glow.setBlurRadius(24)
-        glow.setOffset(0, 0)
-        glow.setColor(QColor(160, 91, 255, 68))
-        self.portfolio_tabs.setGraphicsEffect(glow)
+        self.portfolio_tabs.setProperty("active", True)
+        style = self.portfolio_tabs.style()
+        style.unpolish(self.portfolio_tabs)
+        style.polish(self.portfolio_tabs)
+        self.portfolio_tabs.update()
 
     def _rename_current_portfolio(self) -> None:
         if self.current_portfolio_id is None:
@@ -646,14 +652,8 @@ class MainWindow(QMainWindow):
     def _set_filter(self, value: str) -> None:
         self.current_filter = value
         button = self.filter_buttons[value]
-        glow = QGraphicsDropShadowEffect(button)
-        glow.setBlurRadius(18)
-        glow.setOffset(0, 0)
-        glow.setColor(QColor(160, 91, 255, 77))
-        button.setGraphicsEffect(glow)
         for other in self.filter_buttons.values():
-            if other is not button:
-                other.setGraphicsEffect(None)
+            other.setChecked(other is button)
         self.refresh()
 
     def _save_rate(self) -> None:
@@ -751,13 +751,18 @@ class MainWindow(QMainWindow):
             ("—" if metrics.average_x is None else f"{metrics.average_x:.2f}x", "СРЕДНИЙ X"),
             ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI"),
         ):
-            stats_row.addWidget(
-                self._metric_block(
-                    value,
-                    label,
-                    value_object_name="catalogKpiPrimaryValue" if label == "ПРОДАЖИ" else "metricValue",
-                )
+            block = self._metric_block(
+                value,
+                label,
+                value_object_name="catalogKpiPrimaryValue" if label == "ПРОДАЖИ" else "metricValue",
             )
+            if label == "ПРОДАЖИ":
+                sales_value = block.layout().itemAt(0).widget()
+                sales_value.setProperty(
+                    "tone",
+                    "positive" if metrics.revenue > 0 else "negative" if metrics.revenue < 0 else "neutral",
+                )
+            stats_row.addWidget(block)
         stats_row.addStretch()
         net_value = QLabel(f"{metrics.net_profit:+.2f} BYN")
         net_value.setObjectName("catalogHeroValue")
@@ -812,14 +817,17 @@ class MainWindow(QMainWindow):
         value_object_name: str = "metricValue",
     ) -> QWidget:
         block = QWidget()
+        block.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 18, 0)
         layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         block.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         value_label = QLabel(value)
+        value_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         value_label.setObjectName(value_object_name)
         label_widget = QLabel(label)
+        label_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         label_widget.setObjectName("metricLabel")
         layout.addWidget(value_label)
         layout.addWidget(label_widget)
@@ -828,27 +836,28 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _metric_editor_block(label: str, editor: QLineEdit) -> QWidget:
         block = QWidget()
+        block.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 18, 0)
         layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         block.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         label_widget = QLabel(label)
+        label_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         label_widget.setObjectName("sectionLabel")
         layout.addWidget(editor)
         layout.addWidget(label_widget)
         return block
 
     def _item_row(self, item: Item) -> QWidget:
-        row = QFrameCard()
+        material_pixmap = QPixmap(str(self.item_material_path)) if self.item_material_path else QPixmap()
+        row = QFrameCard(material_pixmap if not material_pixmap.isNull() else None)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 8, 10, 8)
-        photo = ClickableLabel()
+        photo = PhotoSurface()
         photo.setFixedSize(180, 180)
-        photo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        photo.setStyleSheet("background:#30343a;")
         if item.photo_path and Path(item.photo_path).is_file():
-            photo.setPixmap(QPixmap(item.photo_path).scaled(175, 175, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            photo.setPixmap(QPixmap(item.photo_path))
             photo.clicked.connect(lambda path=item.photo_path: PhotoViewer(path, self).exec())
         else:
             photo.setText("Нет фото")
@@ -861,6 +870,7 @@ class MainWindow(QMainWindow):
         date_label = QLabel(
             f"{item.purchase_date.day:02d} {month_names[item.purchase_date.month - 1]} {item.purchase_date.year}"
         )
+        date_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         date_label.setObjectName("catalogItemDate")
         details.addWidget(date_label)
         info_row = QHBoxLayout()
@@ -886,6 +896,7 @@ class MainWindow(QMainWindow):
             status_text = "● ПРОДАНО"
             status_object_name = "statusSold"
         status = QLabel(status_text)
+        status.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         status.setObjectName(status_object_name)
         info_row.addWidget(status)
         info_row.addStretch()
@@ -901,6 +912,7 @@ class MainWindow(QMainWindow):
         sale.setFixedWidth(150)
         sale.returnPressed.connect(lambda edit=sale, current=item: self._sell(current, edit))
         sale_row.addWidget(self._metric_editor_block("ПРОДАЖА", sale), 0, 0)
+        days_block: QWidget | None = None
         for value, label, tone in (
             ("—" if metrics.profit is None else f"{metrics.profit:+.2f} BYN", "ПРИБЫЛЬ", catalog_metric_tone(metrics.profit, Decimal("0"))),
             ("—" if metrics.x is None else f"{metrics.x:.2f}x", "X", catalog_metric_tone(metrics.x, Decimal("1"))),
@@ -915,11 +927,39 @@ class MainWindow(QMainWindow):
             value_widget = block.layout().itemAt(0).widget()
             value_widget.setProperty("tone", tone)
             sale_row.addWidget(block, 0, sale_row.columnCount())
+            if label == "ДО ПРОДАЖИ":
+                days_block = block
         sale_row.setColumnStretch(sale_row.columnCount(), 1)
         details.addLayout(sale_row)
-        layout.addLayout(details, 1)
+        layout.addLayout(details, 0)
+        layout.addStretch(1)
+        sale_row.activate()
+        details.activate()
+        info_content_width = sum(
+            info_row.itemAt(index).sizeHint().width()
+            for index in range(info_row.count())
+        ) + max(0, info_row.count() - 1) * info_row.spacing()
+        sale_content_width = sum(
+            sale_row.itemAt(index).sizeHint().width()
+            for index in range(sale_row.count())
+        ) + max(0, sale_row.count() - 1) * sale_row.horizontalSpacing()
+        content_width = max(
+            date_label.sizeHint().width(),
+            info_content_width,
+            sale_content_width,
+        )
+        row.set_island_width(
+            layout.contentsMargins().left()
+            + photo.width()
+            + layout.spacing()
+            + content_width
+            + layout.contentsMargins().right()
+            + 16
+        )
+        if days_block is not None:
+            row.set_content_right_widget(days_block)
         menu_button = QToolButton()
-        menu_button.setText("⋯")
+        menu_button.setText("...")
         menu_button.setObjectName("itemMenu")
         menu = QMenu(menu_button)
         replace = QAction("Заменить фото", menu)
@@ -930,6 +970,8 @@ class MainWindow(QMainWindow):
         menu.addAction(delete)
         menu_button.setMenu(menu)
         menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu_button.setArrowType(Qt.ArrowType.NoArrow)
+        menu_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         layout.addWidget(menu_button, 0, Qt.AlignmentFlag.AlignTop)
         return row
 
@@ -1027,9 +1069,87 @@ class MainWindow(QMainWindow):
 
 
 class QFrameCard(QWidget):
-    """A light card container, kept as a class for reliable object discovery in UI tests."""
+    """Paint the compact information surface for one full-width Item row."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, material_pixmap: QPixmap | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("itemCard")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._island_width = 0
+        self._content_right_widget: QWidget | None = None
+        self._material_pixmap = material_pixmap or QPixmap()
+
+    def set_island_width(self, width: int) -> None:
+        self._island_width = max(0, width)
+        self.update()
+
+    def set_content_right_widget(self, widget: QWidget) -> None:
+        self._content_right_widget = widget
+        self._update_island_width_from_geometry()
+        QTimer.singleShot(0, self._update_island_width_from_geometry)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._update_island_width_from_geometry()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self._update_island_width_from_geometry()
+
+    def _update_island_width_from_geometry(self) -> None:
+        widget = self._content_right_widget
+        if widget is None or not widget.isVisible():
+            return
+        row_layout = self.layout()
+        if row_layout is not None:
+            row_layout.activate()
+        right = widget.mapTo(self, widget.rect().topRight()).x()
+        self._island_width = right + 24
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        del event
+        painter = QPainter(self)
+        try:
+            self._paint_island(painter)
+        finally:
+            painter.end()
+
+    def _paint_island(self, painter: QPainter) -> None:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bounds = self.rect().adjusted(4, 4, -5, -4)
+        island_right = min(
+            bounds.right(),
+            self._island_width if self._island_width else bounds.right(),
+        )
+        island_bounds = bounds.adjusted(8, 4, -8, -4)
+        island_bounds.setRight(max(island_bounds.left() + 80, island_right))
+        island = QPainterPath()
+        island.addRoundedRect(island_bounds, 18, 18)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(92, 64, 166, 12), 9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPath(island)
+        glass_gradient = QLinearGradient(0, island_bounds.top(), 0, island_bounds.bottom())
+        glass_gradient.setColorAt(0.0, QColor(42, 34, 68, 220))
+        glass_gradient.setColorAt(0.28, QColor(28, 26, 48, 212))
+        glass_gradient.setColorAt(0.68, QColor(19, 20, 36, 214))
+        glass_gradient.setColorAt(1.0, QColor(11, 14, 27, 222))
+        painter.fillPath(island, glass_gradient)
+        reflection = QLinearGradient(
+            island_bounds.left(),
+            island_bounds.top(),
+            island_bounds.right(),
+            island_bounds.bottom(),
+        )
+        reflection.setColorAt(0.0, QColor(177, 139, 245, 22))
+        reflection.setColorAt(0.38, QColor(126, 105, 205, 7))
+        reflection.setColorAt(0.72, QColor(22, 28, 62, 0))
+        reflection.setColorAt(1.0, QColor(5, 10, 26, 18))
+        painter.fillPath(island, reflection)
+        painter.setPen(QPen(QColor(125, 103, 177, 34), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPath(island)
+        if not self._material_pixmap.isNull():
+            overlay_position = island_bounds.topLeft() + QPoint(10, -2)
+            painter.drawPixmap(overlay_position, self._material_pixmap)

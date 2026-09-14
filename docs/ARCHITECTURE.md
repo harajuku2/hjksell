@@ -21,6 +21,7 @@ Important modules:
 - `hjksell/ui/main_window.py`: Catalog, portfolio tabs, filters, Item rows, sale editing, expenses, Telegram settings/polling ownership.
 - `hjksell/ui/analytics_window.py`: separate Analytics window and four approved KPI groups.
 - `hjksell/ui/typography.py`: runtime font registration and semantic display, interface, metric, and input roles. All visible roles currently resolve to registered Oswald; Kulag Sha remains registered and packaged for reversible experimentation.
+- `hjksell/ui/neon_widgets.py`: lightweight painted Catalog surfaces, including the continuous atmospheric backplate and rounded photo well.
 - `hjksell/services/items.py`: Item creation and sale/cancel transitions.
 - `hjksell/services/finance.py`: Decimal cost, profit, X, ROI, and parsing.
 - `hjksell/services/analytics.py`: period-aware metrics; internal `revenue` naming remains.

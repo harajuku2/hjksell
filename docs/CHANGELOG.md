@@ -42,3 +42,8 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 - Updated Catalog and Analytics formulas so other income contributes to `ПРОДАЖИ` and net profit, while advertising contributes only to net profit.
 - Allowed zero-cost Items, with undefined X/ROI displayed as `—`, and accepted Telegram caption `0`.
 - Added centralized runtime typography roles with Oswald as the single visible family across Catalog and Analytics; Kulag Sha remains registered and packaged for reversible experimentation, and Onest remains available as fallback.
+
+## V2 Catalog visual prototype
+
+- Added a continuous atmospheric graphite backplate, translucent Catalog workspace, painted Item information islands, rounded photo wells, material-style controls, and a restrained violet scrollbar.
+- Removed Catalog portfolio/filter drop-shadow effects whose rectangular widget bounds created visible glow boundaries.

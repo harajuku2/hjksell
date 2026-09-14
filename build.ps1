@@ -27,6 +27,7 @@ foreach ($artifact in @(
     --icon (Join-Path $PSScriptRoot "assets\icons\hjksell.ico") `
     --add-data "alembic;alembic" `
     --add-data "assets\icons;assets\icons" `
+    --add-data "assets\ui;assets\ui" `
     --add-data "assets\fonts\onest;assets\fonts\onest" `
     --add-data "assets\fonts\kulag-sha;assets\fonts\kulag-sha" `
     --add-data "assets\fonts\oswald;assets\fonts\oswald" `
