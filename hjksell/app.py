@@ -51,6 +51,14 @@ def build_stylesheet() -> str:
             margin-top: 15px;
             padding: 12px 10px 10px;
         }
+        QGroupBox#analyticsPrimarySection {
+            background-color: #181e27;
+            border-color: #344152;
+        }
+        QGroupBox#analyticsSection {
+            background-color: #151920;
+            border-color: #252c36;
+        }
         QLabel#analyticsTitle {
             color: #ffffff;
             font-size: 22px;
@@ -65,6 +73,28 @@ def build_stylesheet() -> str:
             color: #f4f7fb;
             font-size: 17px;
             font-weight: 700;
+        }
+        QLabel#analyticsPrimaryValue {
+            color: #f4f7fb;
+            font-size: 21px;
+            font-weight: 700;
+        }
+        QLabel#analyticsMetricLabel {
+            color: #7f8996;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        QLabel#analyticsValue[tone="positive"], QLabel#analyticsPrimaryValue[tone="positive"] {
+            color: #76c69a;
+        }
+        QLabel#analyticsValue[tone="negative"], QLabel#analyticsPrimaryValue[tone="negative"] {
+            color: #d98282;
+        }
+        QLabel#analyticsValue[tone="neutral"], QLabel#analyticsPrimaryValue[tone="neutral"] {
+            color: #f4f7fb;
+        }
+        QLabel#analyticsValue[tone="amber"], QLabel#analyticsPrimaryValue[tone="amber"] {
+            color: #c9a968;
         }
         QPushButton#analyticsBack {
             background: #202833;
@@ -120,6 +150,10 @@ def build_stylesheet() -> str:
         }
         QLabel#statusStock {
             color: #91a7c4;
+            font-weight: 600;
+        }
+        QLabel#statusNoRevenue {
+            color: #c9a968;
             font-weight: 600;
         }
         QLineEdit#saleInput, QLineEdit#exchangeRate, QLineEdit#monthlyExpense {

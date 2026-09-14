@@ -45,8 +45,12 @@ class ItemService:
         )
 
     def sell(self, item: Item, sale_price_text: str, sale_date: date | None = None) -> Item:
-        sale_price = parse_decimal(sale_price_text, field_name="цену продажи", positive=True)
         if item.deleted_at is not None:
             raise ValueError("Удалённую вещь нельзя продать.")
+        if not sale_price_text.strip():
+            return self.repository.cancel_sale(item)
+        sale_price = parse_decimal(sale_price_text, field_name="цену продажи")
+        if sale_price < 0:
+            raise ValueError("Цена продажи не может быть отрицательной.")
         effective_sale_date = item.sale_date or sale_date or date.today()
         return self.repository.sale(item, sale_price.quantize(Decimal("0.01")), effective_sale_date)

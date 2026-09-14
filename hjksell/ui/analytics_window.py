@@ -96,6 +96,12 @@ def _decimal(value: Decimal | None, suffix: str = " BYN") -> str:
     return "—" if value is None else f"{value:.2f}{suffix}"
 
 
+def _tone(value: Decimal | None) -> str:
+    if value is None or value == 0:
+        return "neutral"
+    return "positive" if value > 0 else "negative"
+
+
 class AnalyticsWindow(QMainWindow):
     """Premium-dark analytics window with a portfolio and period scope."""
 
@@ -155,30 +161,77 @@ class AnalyticsWindow(QMainWindow):
         self.period_label = QLabel()
         self.period_label.setObjectName("analyticsSubtitle")
         content_layout.addWidget(self.period_label)
-        self.metrics_grid = QGridLayout()
         self.metric_labels: dict[str, QLabel] = {}
-        fields = (
-            ("revenue", "ВЫРУЧКА"), ("realized_profit", "РЕАЛИЗОВАННАЯ ПРИБЫЛЬ"),
-            ("net_profit", "ЧИСТАЯ ПРИБЫЛЬ"), ("expenses", "РАСХОДЫ"),
-            ("roi", "ROI"), ("roi_after_expenses", "ROI ПОСЛЕ РАСХОДОВ"),
-            ("average_x", "СРЕДНИЙ X"), ("best_x", "ЛУЧШИЙ X"),
-            ("worst_x", "ХУДШИЙ X"), ("average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ"),
-            ("average_sale", "СРЕДНЯЯ ПРОДАЖА"), ("average_profit", "СРЕДНЯЯ ПРИБЫЛЬ"),
-            ("purchased_count", "КОЛИЧЕСТВО ЗАКУПОК"), ("sold_count", "КОЛИЧЕСТВО ПРОДАЖ"),
-            ("in_stock_count", "В НАЛИЧИИ"), ("warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ"),
-            ("average_sale_days", "СРЕДНЕЕ ВРЕМЯ ПРОДАЖИ"),
+        sections = (
+            (
+                "РЕЗУЛЬТАТ",
+                "analyticsPrimarySection",
+                (
+                    ("revenue", "ПРОДАЖИ"),
+                    ("realized_profit", "РЕАЛИЗОВАННАЯ ПРИБЫЛЬ"),
+                    ("net_profit", "ЧИСТАЯ ПРИБЫЛЬ"),
+                    ("expenses", "РАСХОДЫ"),
+                    ("sold_count", "ПРОДАНО"),
+                ),
+                "analyticsPrimaryValue",
+            ),
+            (
+                "ЭФФЕКТИВНОСТЬ",
+                "analyticsSection",
+                (
+                    ("roi", "ROI"),
+                    ("roi_after_expenses", "ROI ПОСЛЕ РАСХОДОВ"),
+                    ("average_x", "СРЕДНИЙ X"),
+                    ("best_x", "ЛУЧШИЙ X"),
+                    ("worst_x", "ХУДШИЙ X"),
+                ),
+                "analyticsValue",
+            ),
+            (
+                "ЗАКУПКИ И СКЛАД",
+                "analyticsSection",
+                (
+                    ("invested", "ВЛОЖЕНО"),
+                    ("purchased_count", "КУПЛЕНО"),
+                    ("in_stock_count", "В НАЛИЧИИ"),
+                    ("warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ"),
+                ),
+                "analyticsValue",
+            ),
+            (
+                "СРЕДНИЕ ПОКАЗАТЕЛИ",
+                "analyticsSection",
+                (
+                    ("average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ"),
+                    ("average_sale", "СРЕДНЯЯ ПРОДАЖА"),
+                    ("average_profit", "СРЕДНЯЯ ПРИБЫЛЬ"),
+                    ("average_sale_days", "СРЕДНЕЕ ВРЕМЯ ПРОДАЖИ"),
+                ),
+                "analyticsValue",
+            ),
         )
-        for index, (key, label) in enumerate(fields):
-            box = QGroupBox(label)
-            box_layout = QVBoxLayout(box)
-            value = QLabel("—")
-            value.setObjectName("analyticsValue")
-            box_layout.addWidget(value)
-            self.metric_labels[key] = value
-            self.metrics_grid.addWidget(box, index // 4, index % 4)
-        content_layout.addLayout(self.metrics_grid)
+        for title, section_object_name, fields, value_object_name in sections:
+            section = QGroupBox(title)
+            section.setObjectName(section_object_name)
+            section_layout = QGridLayout(section)
+            section_layout.setContentsMargins(12, 18, 12, 12)
+            section_layout.setHorizontalSpacing(18)
+            section_layout.setVerticalSpacing(12)
+            for index, (key, label) in enumerate(fields):
+                card = QWidget()
+                card_layout = QVBoxLayout(card)
+                card_layout.setContentsMargins(0, 0, 0, 0)
+                value = QLabel("—")
+                value.setObjectName(value_object_name)
+                caption = QLabel(label)
+                caption.setObjectName("analyticsMetricLabel")
+                card_layout.addWidget(value)
+                card_layout.addWidget(caption)
+                self.metric_labels[key] = value
+                section_layout.addWidget(card, index // 4, index % 4)
+            content_layout.addWidget(section)
         charts = QHBoxLayout()
-        self.revenue_chart = MiniLineChart("ВЫРУЧКА ПО МЕСЯЦАМ")
+        self.revenue_chart = MiniLineChart("ПРОДАЖИ ПО МЕСЯЦАМ")
         self.profit_chart = MiniLineChart("ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ")
         self.invested_chart = MiniLineChart("ВЛОЖЕНО ПО МЕСЯЦАМ")
         charts.addWidget(self.revenue_chart)
@@ -193,9 +246,13 @@ class AnalyticsWindow(QMainWindow):
     def _load_portfolios(self) -> None:
         with self.session_factory() as session:
             all_portfolios = PortfolioRepository(session).list_all()
-            self.portfolios = [portfolio for portfolio in all_portfolios if portfolio.name in {"МОЯ", "ДРУГА"}]
+            self.portfolios = [portfolio for portfolio in all_portfolios if portfolio.id in {1, 2}]
+        self.portfolio_tabs.blockSignals(True)
+        while self.portfolio_tabs.count() > 0:
+            self.portfolio_tabs.removeTab(0)
         for portfolio in self.portfolios:
             self.portfolio_tabs.addTab(portfolio.name)
+        self.portfolio_tabs.blockSignals(False)
         if self.current_portfolio_id is None and self.portfolios:
             self.current_portfolio_id = self.portfolios[0].id
         selected = next(
@@ -204,6 +261,9 @@ class AnalyticsWindow(QMainWindow):
         )
         self.portfolio_tabs.setCurrentIndex(selected)
         self.refresh()
+
+    def reload_portfolios(self) -> None:
+        self._load_portfolios()
 
     def _portfolio_changed(self, index: int) -> None:
         if 0 <= index < len(self.portfolios):
@@ -237,6 +297,14 @@ class AnalyticsWindow(QMainWindow):
             else:
                 text = str(value)
             label.setText(text)
+            if key == "expenses":
+                label.setProperty("tone", "amber")
+            elif key in {"realized_profit", "net_profit", "roi", "roi_after_expenses", "average_profit"}:
+                label.setProperty("tone", _tone(value))
+            else:
+                label.setProperty("tone", "neutral")
+            label.style().unpolish(label)
+            label.style().polish(label)
         labels = [entry.label for entry in monthly]
         self.revenue_chart.set_data(labels, [entry.revenue for entry in monthly])
         self.profit_chart.set_data(labels, [entry.net_profit for entry in monthly])

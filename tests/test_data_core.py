@@ -84,6 +84,13 @@ def test_unprofitable_sale() -> None:
     assert calculate_roi(Decimal("80"), Decimal("100")) == Decimal("-20.00")
 
 
+def test_zero_sale_financials_are_a_real_sale() -> None:
+    metrics = item_metrics(Decimal("0.00"), Decimal("29.75"))
+    assert metrics.profit == Decimal("-29.75")
+    assert metrics.x == Decimal("0.00")
+    assert metrics.roi == Decimal("-100.00")
+
+
 def test_unsold_item_metrics_are_none() -> None:
     assert item_metrics(None, Decimal("100")) == item_metrics(None, Decimal("100"))
     metrics = item_metrics(None, Decimal("100"))

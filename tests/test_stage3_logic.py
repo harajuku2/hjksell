@@ -7,16 +7,19 @@ from decimal import Decimal
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from hjksell.config import AppPaths
 from hjksell.database.models import Base, ItemStatus
 from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.repositories.settings_repository import SettingsRepository
+from hjksell.repositories.telegram_repository import TelegramRepository
 from hjksell.services.items import ItemService
 from hjksell.services.photos import PhotoService
 from hjksell.services.finance import item_metrics
+from hjksell.services.portfolios import PortfolioService
+from hjksell.ui.main_window import MainWindow, item_matches_catalog_filter
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication
 
@@ -72,15 +75,139 @@ def test_sale_validation_and_repository_status() -> None:
         settings = SettingsRepository(session)
         service = ItemService(ItemRepository(session), settings)
         item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
-        try:
-            service.sell(item, "0")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("zero sale price must be rejected")
+        service.sell(item, "0", date(2026, 9, 12))
+        assert item.status == ItemStatus.SOLD.value
+        assert item.sale_price_byn == Decimal("0.00")
+        assert item.sale_date == date(2026, 9, 12)
         service.sell(item, "200,5", date(2026, 9, 12))
         assert item.status == ItemStatus.SOLD.value
         assert item.sale_price_byn == Decimal("200.50")
+
+
+def test_sale_can_be_cancelled_and_sold_again_with_new_date() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        settings = SettingsRepository(session)
+        service = ItemService(ItemRepository(session), settings)
+        item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        service.sell(item, "200", date(2026, 9, 12))
+        service.sell(item, "")
+        assert item.status == ItemStatus.IN_STOCK.value
+        assert item.sale_price_byn is None
+        assert item.sale_date is None
+        service.sell(item, "250", date(2026, 9, 20))
+        assert item.status == ItemStatus.SOLD.value
+        assert item.sale_price_byn == Decimal("250.00")
+        assert item.sale_date == date(2026, 9, 20)
+
+
+def test_negative_sale_price_is_rejected() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        try:
+            service.sell(item, "-1")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("negative sale price must be rejected")
+
+
+def test_catalog_filters_distinguish_stock_positive_and_zero_sale() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        stock = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        positive = service.create_from_text(mine.id, "110", date(2026, 9, 2))
+        zero = service.create_from_text(mine.id, "120", date(2026, 9, 3))
+        service.sell(positive, "200", date(2026, 9, 10))
+        service.sell(zero, "0", date(2026, 9, 11))
+
+        assert item_matches_catalog_filter(stock, "stock")
+        assert not item_matches_catalog_filter(stock, "sold")
+        assert not item_matches_catalog_filter(stock, "no_revenue")
+        assert item_matches_catalog_filter(positive, "sold")
+        assert not item_matches_catalog_filter(positive, "stock")
+        assert not item_matches_catalog_filter(positive, "no_revenue")
+        assert item_matches_catalog_filter(zero, "no_revenue")
+        assert not item_matches_catalog_filter(zero, "stock")
+        assert not item_matches_catalog_filter(zero, "sold")
+
+
+def test_portfolio_display_names_persist_without_changing_identity_or_bindings() -> None:
+    with make_session() as session:
+        mine, friend = PortfolioRepository(session).ensure_default_portfolios()
+        mine_id, friend_id = mine.id, friend.id
+        service = PortfolioService(PortfolioRepository(session))
+        service.rename(mine, "  HJK  ")
+        service.rename(friend, "ПАРТНЁР")
+        telegram = TelegramRepository(session)
+        telegram.set_token(mine_id, "111111:mine")
+        telegram.set_token(friend_id, "222222:friend")
+        telegram.set_offset(mine_id, 14)
+        telegram.bind_channel(mine_id, "-1001", "Mine")
+        session.commit()
+
+        reloaded = PortfolioRepository(session)
+        portfolios = reloaded.list_all()
+        assert [(portfolio.id, portfolio.name) for portfolio in portfolios] == [
+            (mine_id, "HJK"),
+            (friend_id, "ПАРТНЁР"),
+        ]
+        assert reloaded.ensure_default_portfolios()[0].id == mine_id
+        assert reloaded.ensure_default_portfolios()[1].id == friend_id
+        assert telegram.token(mine_id) == "111111:mine"
+        assert telegram.token(friend_id) == "222222:friend"
+        assert telegram.offset(mine_id) == 14
+        assert telegram.channel("-1001", mine_id).portfolio_id == mine_id
+
+
+def test_portfolio_display_name_validation_preserves_existing_name() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = PortfolioService(PortfolioRepository(session))
+        for invalid in ("   ", "x" * 25):
+            try:
+                service.rename(mine, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid display name must be rejected")
+            assert mine.name == "МОЯ"
+
+
+def test_main_window_reloads_portfolio_tabs_without_invalid_qt_api(tmp_path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    with factory() as session:
+        PortfolioRepository(session).ensure_default_portfolios()
+        session.commit()
+    paths = AppPaths(
+        tmp_path / "root",
+        tmp_path / "data",
+        tmp_path / "data" / "photos",
+        tmp_path / "logs",
+        tmp_path / "db.sqlite",
+        tmp_path / "logs" / "app.log",
+    )
+    monkeypatch.setattr(MainWindow, "_start_telegram_polling", lambda self: None)
+    window = MainWindow(session_factory=factory, paths=paths)
+    try:
+        assert [window.portfolio_tabs.tabText(index) for index in range(window.portfolio_tabs.count())] == ["МОЯ", "ДРУГА"]
+        window.current_portfolio_id = 2
+        with factory() as session:
+            portfolio = PortfolioRepository(session).get(2)
+            PortfolioService(PortfolioRepository(session)).rename(portfolio, "PARTNER")
+            session.commit()
+        window._load_portfolios()
+        assert window.current_portfolio_id == 2
+        assert [window.portfolio_tabs.tabText(index) for index in range(window.portfolio_tabs.count())] == ["МОЯ", "PARTNER"]
+    finally:
+        window.close()
+        app.processEvents()
 
 
 def test_sale_price_can_be_edited_without_changing_sale_date() -> None:
@@ -119,3 +246,17 @@ def test_item_menu_actions_ignore_qt_checked_argument() -> None:
     action.trigger()
 
     assert received == [item]
+
+
+def test_item_calculated_metric_blocks_put_labels_above_values() -> None:
+    app = QApplication.instance() or QApplication([])
+    block = MainWindow._metric_block("+68.00 BYN", "ПРИБЫЛЬ", label_above=True, value_object_name="profitValue")
+    try:
+        layout = block.layout()
+        assert layout is not None
+        assert layout.itemAt(0).widget().text() == "ПРИБЫЛЬ"
+        assert layout.itemAt(1).widget().text() == "+68.00 BYN"
+        assert layout.itemAt(1).widget().objectName() == "profitValue"
+    finally:
+        block.deleteLater()
+        app.processEvents()

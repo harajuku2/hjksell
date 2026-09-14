@@ -4,12 +4,15 @@ from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from hjksell.database.models import Base, Item, ItemStatus
 from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.services.analytics import AnalyticsPeriod, AnalyticsService, PeriodPreset
+from hjksell.ui.analytics_window import AnalyticsWindow
+from hjksell.ui.main_window import MainWindow
+from PySide6.QtWidgets import QApplication, QLabel
 
 
 def make_session() -> Session:
@@ -73,6 +76,20 @@ def test_expenses_sum_across_months_and_profit_formulas():
         assert metrics.roi_after_expenses == Decimal("176.47")
 
 
+def test_zero_sale_is_counted_and_cancelled_sale_is_not():
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        zero_sale = item(session, mine.id, date(2026, 9, 1), cost="29.75", sale="0", sold=date(2026, 9, 10))
+        cancelled = item(session, mine.id, date(2026, 9, 2), cost="40")
+        repository = ItemRepository(session)
+        repository.cancel_sale(cancelled)
+        metrics = AnalyticsService(repository).monthly_metrics(mine.id, 2026, 9)
+        assert zero_sale.sale_price_byn == Decimal("0")
+        assert metrics.sold_count == 1
+        assert metrics.revenue == Decimal("0.00")
+        assert metrics.realized_profit == Decimal("-29.75")
+
+
 def test_averages_best_worst_days_and_warehouse():
     with make_session() as session:
         mine, _ = PortfolioRepository(session).ensure_default_portfolios()
@@ -104,3 +121,54 @@ def test_soft_delete_portfolio_scope_and_empty_data():
         assert empty.average_x is None
         assert empty.roi is None
         assert service.detailed_metrics(friend.id, PeriodPreset.ALL_TIME).revenue == Decimal("100.00")
+
+
+def test_analytics_kpi_groups_labels_and_semantic_tones() -> None:
+    app = QApplication.instance() or QApplication([])
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        item(session, mine.id, date(2026, 9, 1), cost="100", sale="0", sold=date(2026, 9, 10))
+        session.commit()
+        factory = sessionmaker(bind=session.bind, class_=Session, expire_on_commit=False)
+        window = AnalyticsWindow(factory, mine.id)
+        try:
+            assert set(window.metric_labels) == {
+                "revenue", "realized_profit", "net_profit", "expenses", "sold_count",
+                "roi", "roi_after_expenses", "average_x", "best_x", "worst_x",
+                "invested", "purchased_count", "in_stock_count", "warehouse_value",
+                "average_cost", "average_sale", "average_profit", "average_sale_days",
+            }
+            assert window.revenue_chart.title == "ПРОДАЖИ ПО МЕСЯЦАМ"
+            window.period_combo.setCurrentIndex(window.period_combo.findData(PeriodPreset.ALL_TIME))
+            window.refresh()
+            assert window.metric_labels["realized_profit"].property("tone") == "negative"
+            assert window.metric_labels["net_profit"].property("tone") == "negative"
+            assert window.metric_labels["revenue"].property("tone") == "neutral"
+            assert window.metric_labels["sold_count"].property("tone") == "neutral"
+        finally:
+            window.close()
+            app.processEvents()
+
+
+def test_catalogue_monthly_sales_label_uses_sales_terminology() -> None:
+    app = QApplication.instance() or QApplication([])
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        item(session, mine.id, date(2026, 9, 1), sale="200", sold=date(2026, 9, 10))
+        factory = sessionmaker(bind=session.bind, class_=Session, expire_on_commit=False)
+        window = MainWindow.__new__(MainWindow)
+        window.session_factory = factory
+        window.current_portfolio_id = mine.id
+        widget = window._month_group(
+            session,
+            2026,
+            9,
+            [],
+            AnalyticsService(ItemRepository(session)).monthly_metrics(mine.id, 2026, 9),
+        )
+        try:
+            assert "ВЫРУЧКА" not in [label.text() for label in widget.findChildren(QLabel)]
+            assert "ПРОДАЖИ" in [label.text() for label in widget.findChildren(QLabel)]
+        finally:
+            widget.deleteLater()
+            app.processEvents()

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QInputDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -35,7 +36,7 @@ from PySide6.QtWidgets import (
 )
 from ..config import AppPaths, ensure_app_directories, get_app_paths
 from ..database.connection import initialize_database
-from ..database.models import Item, ItemStatus, Portfolio
+from ..database.models import Item, Portfolio
 from ..repositories.item_repository import ItemRepository
 from ..repositories.portfolio_repository import PortfolioRepository
 from ..repositories.settings_repository import SettingsRepository
@@ -43,6 +44,7 @@ from ..services.analytics import AnalyticsService, MonthlyMetrics
 from ..services.finance import calculate_cost, item_metrics, parse_decimal
 from ..services.items import ItemService
 from ..services.photos import PhotoService
+from ..services.portfolios import PortfolioService
 from ..services.telegram import (
     TelegramApiClient,
     TelegramImportService,
@@ -53,6 +55,18 @@ from ..repositories.telegram_repository import TelegramRepository
 from .analytics_window import AnalyticsWindow
 
 logger = logging.getLogger(__name__)
+
+
+def item_matches_catalog_filter(item: Item, filter_key: str) -> bool:
+    """Return whether an active item belongs to a catalogue filter."""
+    sale_price = item.sale_price_byn
+    if filter_key == "stock":
+        return sale_price is None
+    if filter_key == "sold":
+        return sale_price is not None and sale_price > 0
+    if filter_key == "no_revenue":
+        return sale_price == 0
+    return True
 
 
 class ClickableLabel(QLabel):
@@ -186,12 +200,12 @@ class TelegramSettingsDialog(QDialog):
             discovered_layout.addWidget(QLabel(f"Обнаружен канал: {discovered_channel[1] or 'Без названия'}"))
             discovered_layout.addWidget(QLabel(f"ID: {discovered_channel[0]}"))
             binding_row = QHBoxLayout()
-            bind_mine = QPushButton("Привязать к МОЯ")
-            bind_friend = QPushButton("Привязать к ДРУГА")
-            bind_mine.clicked.connect(lambda: self._bind_discovered(portfolios, "МОЯ"))
-            bind_friend.clicked.connect(lambda: self._bind_discovered(portfolios, "ДРУГА"))
-            binding_row.addWidget(bind_mine)
-            binding_row.addWidget(bind_friend)
+            for portfolio in portfolios:
+                bind = QPushButton(f"Привязать к {portfolio.name}")
+                bind.clicked.connect(
+                    lambda _checked=False, portfolio_id=portfolio.id: self._bind_discovered(portfolio_id)
+                )
+                binding_row.addWidget(bind)
             discovered_layout.addLayout(binding_row)
             layout.addRow(discovered_box)
         self.token_edit = QLineEdit()
@@ -233,13 +247,14 @@ class TelegramSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
-    def _bind_discovered(self, portfolios: list[Portfolio], name: str) -> None:
-        portfolio = next((value for value in portfolios if value.name == name), None)
-        if portfolio is None:
+    def _bind_discovered(self, portfolio_id: int) -> None:
+        index = self.portfolio.findData(portfolio_id)
+        if index < 0:
             return
-        self.binding_portfolio_id = portfolio.id
-        self.portfolio.setCurrentIndex(self.portfolio.findData(portfolio.id))
+        self.binding_portfolio_id = portfolio_id
+        self.portfolio.setCurrentIndex(index)
         self.channel_id.setText(self.discovered_channel[0] if self.discovered_channel else "")
+        name = self.portfolio.currentText()
         self.validation.setText(f"Канал будет привязан к {name}. Нажмите «Сохранить».")
 
     def _validate(self) -> None:
@@ -315,6 +330,11 @@ class MainWindow(QMainWindow):
         self.portfolio_tabs.setExpanding(False)
         self.portfolio_tabs.currentChanged.connect(self._portfolio_changed)
         toolbar.addWidget(self.portfolio_tabs)
+        self.rename_portfolio_button = QToolButton()
+        self.rename_portfolio_button.setText("✎")
+        self.rename_portfolio_button.setToolTip("Переименовать текущий портфель")
+        self.rename_portfolio_button.clicked.connect(self._rename_current_portfolio)
+        toolbar.addWidget(self.rename_portfolio_button)
         toolbar.addSpacing(16)
         rate_label = QLabel("PLN → BYN")
         self.rate_edit = QLineEdit()
@@ -357,7 +377,12 @@ class MainWindow(QMainWindow):
         filter_label.setObjectName("sectionLabel")
         filters.addWidget(filter_label)
         self.filter_buttons: dict[str, QToolButton] = {}
-        for key, text in (("all", "Все"), ("stock", "В наличии"), ("sold", "Продано")):
+        for key, text in (
+            ("all", "Все"),
+            ("stock", "В наличии"),
+            ("sold", "Продано"),
+            ("no_revenue", "Без выручки"),
+        ):
             button = QToolButton()
             button.setText(text.upper())
             button.setCheckable(True)
@@ -517,20 +542,62 @@ class MainWindow(QMainWindow):
     def _load_portfolios(self) -> None:
         with self.session_factory() as session:
             portfolios = PortfolioRepository(session).list_all()
-            self.portfolios = portfolios
-            for portfolio in portfolios:
+            self.portfolios = [portfolio for portfolio in portfolios if portfolio.id in {1, 2}]
+            selected_id = self.current_portfolio_id
+            self.portfolio_tabs.blockSignals(True)
+            while self.portfolio_tabs.count() > 0:
+                self.portfolio_tabs.removeTab(0)
+            for portfolio in self.portfolios:
                 self.portfolio_tabs.addTab(portfolio.name)
+            self.portfolio_tabs.blockSignals(False)
             if portfolios:
-                self.current_portfolio_id = portfolios[0].id
+                self.current_portfolio_id = next(
+                    (portfolio.id for portfolio in self.portfolios if portfolio.id == selected_id),
+                    self.portfolios[0].id,
+                )
             settings = SettingsRepository(session)
             self.rate_edit.setText(f"{settings.current_exchange_rate():.4f}")
             session.commit()
+        selected_index = next(
+            (index for index, portfolio in enumerate(self.portfolios) if portfolio.id == self.current_portfolio_id),
+            0,
+        )
+        self.portfolio_tabs.setCurrentIndex(selected_index)
         self.refresh()
 
     def _portfolio_changed(self, index: int) -> None:
         if 0 <= index < len(self.portfolios):
             self.current_portfolio_id = self.portfolios[index].id
             self.refresh()
+
+    def _rename_current_portfolio(self) -> None:
+        if self.current_portfolio_id is None:
+            return
+        current_name = next(
+            (portfolio.name for portfolio in self.portfolios if portfolio.id == self.current_portfolio_id),
+            "",
+        )
+        name, accepted = QInputDialog.getText(
+            self,
+            "Переименовать портфель",
+            "Название:",
+            QLineEdit.EchoMode.Normal,
+            current_name,
+        )
+        if not accepted:
+            return
+        try:
+            with self.session_factory() as session:
+                portfolio = PortfolioRepository(session).get(self.current_portfolio_id)
+                if portfolio is None:
+                    raise ValueError("Портфель больше недоступен.")
+                PortfolioService(PortfolioRepository(session)).rename(portfolio, name)
+                session.commit()
+            self._load_portfolios()
+            if self._analytics_window is not None:
+                self._analytics_window.reload_portfolios()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Переименовать портфель", str(exc))
 
     def _set_filter(self, value: str) -> None:
         self.current_filter = value
@@ -565,8 +632,7 @@ class MainWindow(QMainWindow):
         with self.session_factory() as session:
             repository = ItemRepository(session)
             all_items = repository.active_items(self.current_portfolio_id)
-            status = {"stock": ItemStatus.IN_STOCK.value, "sold": ItemStatus.SOLD.value}.get(self.current_filter)
-            visible = [item for item in all_items if status is None or item.status == status]
+            visible = [item for item in all_items if item_matches_catalog_filter(item, self.current_filter)]
             analytics = AnalyticsService(repository)
             if not visible:
                 if not all_items:
@@ -604,7 +670,7 @@ class MainWindow(QMainWindow):
         for value, label in (
             (f"{metrics.invested:.2f} BYN", "ВЛОЖЕНО"),
             (str(metrics.purchased_count), "КУПЛЕНО"),
-            (f"{metrics.revenue:.2f} BYN", "ВЫРУЧКА"),
+            (f"{metrics.revenue:.2f} BYN", "ПРОДАЖИ"),
             (str(metrics.sold_count), "ПРОДАНО"),
             ("—" if metrics.average_x is None else f"{metrics.average_x:.2f}x", "СРЕДНИЙ X"),
             ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI"),
@@ -642,16 +708,26 @@ class MainWindow(QMainWindow):
         return group
 
     @staticmethod
-    def _metric_block(value: str, label: str) -> QWidget:
+    def _metric_block(
+        value: str,
+        label: str,
+        *,
+        label_above: bool = False,
+        value_object_name: str = "metricValue",
+    ) -> QWidget:
         block = QWidget()
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 18, 0)
         value_label = QLabel(value)
-        value_label.setObjectName("metricValue")
+        value_label.setObjectName(value_object_name)
         label_widget = QLabel(label)
         label_widget.setObjectName("metricLabel")
-        layout.addWidget(value_label)
-        layout.addWidget(label_widget)
+        if label_above:
+            layout.addWidget(label_widget)
+            layout.addWidget(value_label)
+        else:
+            layout.addWidget(value_label)
+            layout.addWidget(label_widget)
         return block
 
     def _item_row(self, item: Item) -> QWidget:
@@ -685,8 +761,17 @@ class MainWindow(QMainWindow):
             (f"{item.exchange_rate:.4f}", "КУРС"),
         ):
             info_row.addWidget(self._metric_block(value, label))
-        status = QLabel("● ПРОДАНО" if item.status == ItemStatus.SOLD.value else "● В НАЛИЧИИ")
-        status.setObjectName("statusSold" if item.status == ItemStatus.SOLD.value else "statusStock")
+        if item.sale_price_byn is None:
+            status_text = "● В НАЛИЧИИ"
+            status_object_name = "statusStock"
+        elif item.sale_price_byn == 0:
+            status_text = "● УШЛА НА БЛАГОЕ ДЕЛО"
+            status_object_name = "statusNoRevenue"
+        else:
+            status_text = "● ПРОДАНО"
+            status_object_name = "statusSold"
+        status = QLabel(status_text)
+        status.setObjectName(status_object_name)
         info_row.addWidget(status)
         info_row.addStretch()
         details.addLayout(info_row)
@@ -709,8 +794,12 @@ class MainWindow(QMainWindow):
             ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI", "profitValue"),
             ("—" if item.sale_date is None else f"{(item.sale_date - item.purchase_date).days} ДНЕЙ", "ДО ПРОДАЖИ", "metricValue"),
         ):
-            block = self._metric_block(value, label)
-            block.findChild(QLabel).setObjectName(object_name)
+            block = self._metric_block(
+                value,
+                label,
+                label_above=True,
+                value_object_name=object_name,
+            )
             sale_row.addWidget(block)
         sale_row.addStretch()
         details.addLayout(sale_row)

@@ -107,3 +107,11 @@ class ItemRepository:
         item.updated_at = datetime.now()
         self.session.flush()
         return item
+
+    def cancel_sale(self, item: Item) -> Item:
+        item.sale_price_byn = None
+        item.sale_date = None
+        item.status = ItemStatus.IN_STOCK.value
+        item.updated_at = datetime.now()
+        self.session.flush()
+        return item
