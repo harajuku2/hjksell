@@ -5,10 +5,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from PySide6.QtCore import QPoint
+from PySide6.QtGui import QColor, QImage, QPainter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-
+from hjksell.app import build_stylesheet
 from hjksell.config import AppPaths
 from hjksell.database.models import Base, ItemStatus
 from hjksell.repositories.item_repository import ItemRepository
@@ -19,9 +22,9 @@ from hjksell.services.items import ItemService
 from hjksell.services.photos import PhotoService
 from hjksell.services.finance import item_metrics
 from hjksell.services.portfolios import PortfolioService
-from hjksell.ui.main_window import MainWindow, item_matches_catalog_filter
+from hjksell.ui.main_window import MainWindow, catalog_metric_tone, item_matches_catalog_filter
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 
 def make_session() -> Session:
@@ -135,6 +138,132 @@ def test_catalog_filters_distinguish_stock_positive_and_zero_sale() -> None:
         assert not item_matches_catalog_filter(zero, "sold")
 
 
+def test_catalog_metric_tones_cover_positive_negative_neutral_and_unavailable() -> None:
+    assert catalog_metric_tone(Decimal("68"), Decimal("0")) == "positive"
+    assert catalog_metric_tone(Decimal("-15"), Decimal("0")) == "negative"
+    assert catalog_metric_tone(Decimal("0"), Decimal("0")) == "neutral"
+    assert catalog_metric_tone(None, Decimal("0")) == "neutral"
+
+    assert catalog_metric_tone(Decimal("2"), Decimal("1")) == "positive"
+    assert catalog_metric_tone(Decimal("0"), Decimal("1")) == "negative"
+    assert catalog_metric_tone(Decimal("1"), Decimal("1")) == "neutral"
+
+
+def test_catalog_metric_tone_qss_updates_actual_foreground_color() -> None:
+    app = QApplication.instance() or QApplication([])
+    previous_stylesheet = app.styleSheet()
+    app.setStyleSheet(build_stylesheet("Onest"))
+    root = QWidget()
+    root.setObjectName("catalogRoot")
+    colors = {
+        "positive": (118, 198, 154),
+        "negative": (217, 130, 130),
+        "neutral": (244, 247, 251),
+    }
+    try:
+        for tone, expected in colors.items():
+            label = QLabel("+68.00 BYN", root)
+            label.setObjectName("catalogMetricValue")
+            label.setProperty("tone", tone)
+            style = label.style()
+            style.unpolish(label)
+            style.polish(label)
+            actual = label.palette().color(label.foregroundRole())
+            assert (actual.red(), actual.green(), actual.blue()) == expected
+            assert label.property("tone") == tone
+    finally:
+        root.deleteLater()
+        app.setStyleSheet(previous_stylesheet)
+        app.processEvents()
+
+
+def test_catalog_main_window_renders_metric_tones_in_item_rows() -> None:
+    app = QApplication.instance() or QApplication([])
+    previous_stylesheet = app.styleSheet()
+    app.setStyleSheet(build_stylesheet("Onest"))
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for directory in ("data", "photos", "logs"):
+            (root / directory).mkdir()
+        paths = AppPaths(
+            root=root,
+            data=root / "data",
+            photos=root / "photos",
+            logs=root / "logs",
+            database=root / "data" / "hjk_sell.db",
+            log_file=root / "logs" / "app.log",
+        )
+        engine = create_engine(f"sqlite:///{paths.database}")
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(bind=engine, expire_on_commit=False)
+        with Session(engine, expire_on_commit=False) as session:
+            portfolio, _ = PortfolioRepository(session).ensure_default_portfolios()
+            service = ItemService(ItemRepository(session), SettingsRepository(session))
+            profitable = service.create_from_text(portfolio.id, "100", date(2026, 9, 1))
+            service.sell(profitable, "500", date(2026, 9, 10))
+            loss = service.create_from_text(portfolio.id, "100", date(2026, 9, 2))
+            service.sell(loss, "10", date(2026, 9, 10))
+            session.commit()
+        window = MainWindow(session_factory=factory, paths=paths)
+        window.show()
+        app.processEvents()
+        try:
+            rendered = {}
+            for label in window.findChildren(QLabel, "catalogMetricValue"):
+                if label.text() in {"+415.00 BYN", "-75.00 BYN"}:
+                    image = QImage(label.size(), QImage.Format.Format_ARGB32)
+                    image.fill(QColor("#09090b"))
+                    painter = QPainter(image)
+                    label.render(painter, QPoint(0, 0))
+                    painter.end()
+                    colors = {}
+                    for y in range(image.height()):
+                        for x in range(image.width()):
+                            color = image.pixelColor(x, y)
+                            rgb = (color.red(), color.green(), color.blue())
+                            if rgb not in {(9, 9, 11), (14, 17, 23)}:
+                                colors[rgb] = colors.get(rgb, 0) + 1
+                    rendered[label.text()] = max(colors, key=colors.get)
+            assert rendered == {
+                "+415.00 BYN": (118, 198, 154),
+                "-75.00 BYN": (217, 130, 130),
+            }
+        finally:
+            window.close()
+            app.processEvents()
+            engine.dispose()
+            app.setStyleSheet(previous_stylesheet)
+
+
+def test_zero_sale_financial_tones_are_negative_while_status_stays_no_revenue() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        service.sell(item, "0", date(2026, 9, 12))
+        metrics = item_metrics(item.sale_price_byn, item.cost_byn)
+
+        assert item.sale_price_byn == Decimal("0.00")
+        assert item.status == ItemStatus.SOLD.value
+        assert catalog_metric_tone(metrics.profit, Decimal("0")) == "negative"
+        assert catalog_metric_tone(metrics.x, Decimal("1")) == "negative"
+        assert catalog_metric_tone(metrics.roi, Decimal("0")) == "negative"
+
+
+def test_cancelled_sale_returns_catalog_metrics_to_neutral_unavailable() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        item = service.create_from_text(mine.id, "100", date(2026, 9, 1))
+        service.sell(item, "200", date(2026, 9, 12))
+        service.sell(item, "")
+        metrics = item_metrics(item.sale_price_byn, item.cost_byn)
+
+        assert catalog_metric_tone(metrics.profit, Decimal("0")) == "neutral"
+        assert catalog_metric_tone(metrics.x, Decimal("1")) == "neutral"
+        assert catalog_metric_tone(metrics.roi, Decimal("0")) == "neutral"
+
+
 def test_portfolio_display_names_persist_without_changing_identity_or_bindings() -> None:
     with make_session() as session:
         mine, friend = PortfolioRepository(session).ensure_default_portfolios()
@@ -205,6 +334,50 @@ def test_main_window_reloads_portfolio_tabs_without_invalid_qt_api(tmp_path, mon
         window._load_portfolios()
         assert window.current_portfolio_id == 2
         assert [window.portfolio_tabs.tabText(index) for index in range(window.portfolio_tabs.count())] == ["МОЯ", "PARTNER"]
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_catalog_interaction_glows_are_violet_and_not_stale(tmp_path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    with factory() as session:
+        PortfolioRepository(session).ensure_default_portfolios()
+        session.commit()
+    paths = AppPaths(
+        tmp_path / "root",
+        tmp_path / "data",
+        tmp_path / "data" / "photos",
+        tmp_path / "logs",
+        tmp_path / "db.sqlite",
+        tmp_path / "logs" / "app.log",
+    )
+    monkeypatch.setattr(MainWindow, "_start_telegram_polling", lambda self: None)
+    window = MainWindow(session_factory=factory, paths=paths)
+    try:
+        window._portfolio_changed(1)
+        portfolio_effect = window.portfolio_tabs.graphicsEffect()
+        assert portfolio_effect is not None
+        portfolio_color = portfolio_effect.color()
+        assert portfolio_color.red() > portfolio_color.blue() * 0.5
+        assert portfolio_color.blue() > portfolio_color.green() * 1.5
+
+        window._set_filter("all")
+        active_filter = window.filter_buttons["all"]
+        inactive_filter = window.filter_buttons["stock"]
+        filter_effect = active_filter.graphicsEffect()
+        assert filter_effect is not None
+        assert inactive_filter.graphicsEffect() is None
+        filter_color = filter_effect.color()
+        assert filter_color.red() > filter_color.green() * 1.5
+        assert filter_color.blue() > filter_color.green() * 1.5
+
+        window._set_filter("stock")
+        assert active_filter.graphicsEffect() is None
+        assert inactive_filter.graphicsEffect() is not None
     finally:
         window.close()
         app.processEvents()

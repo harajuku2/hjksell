@@ -1,0 +1,71 @@
+# HJKsell architecture
+
+## Runtime and storage
+
+`run_hjksell.py` is the PyInstaller and development entry point. `hjksell.app.main()` configures logging, initializes SQLite, creates `QApplication`, applies the stylesheet, and shows `MainWindow`.
+
+`get_app_paths()` resolves user data under `%LOCALAPPDATA%\HJKsell`:
+
+- `data/hjk_sell.db`
+- `data/photos/`
+- `logs/app.log`
+
+The repository itself must not become the user-data directory.
+
+## Layers
+
+The Catalog and Analytics windows call services and repositories rather than issuing arbitrary SQL. SQLAlchemy models live in `hjksell/database/models.py`; repositories encapsulate persistence; services contain use cases and Decimal calculations; UI owns Qt presentation and user interaction.
+
+Important modules:
+
+- `hjksell/ui/main_window.py`: Catalog, portfolio tabs, filters, Item rows, sale editing, expenses, Telegram settings/polling ownership.
+- `hjksell/ui/analytics_window.py`: separate Analytics window and four approved KPI groups.
+- `hjksell/services/items.py`: Item creation and sale/cancel transitions.
+- `hjksell/services/finance.py`: Decimal cost, profit, X, ROI, and parsing.
+- `hjksell/services/analytics.py`: period-aware metrics; internal `revenue` naming remains.
+- `hjksell/repositories/*`: database access.
+- `hjksell/services/telegram.py` and `repositories/telegram_repository.py`: Bot API, import, diagnostics, portfolio-specific state.
+- `hjksell/services/photos.py`: local photo copying.
+
+## Domain flows
+
+### Item creation and sale
+
+Manual creation or Telegram import creates an Item with `portfolio_id`, purchase PLN, current exchange rate snapshot, calculated BYN cost, purchase date, and optional photo path. Later rate changes do not recalculate existing Items.
+
+Sale input is BYN. A positive or zero value completes a sale and records a sale date. Clearing an existing sale field cancels it, clearing sale price/date and returning the Item to stock. Editing an existing non-empty sale keeps its existing sale date. Zero is not treated as unsold.
+
+### Financial semantics
+
+- profit = sale BYN - historical cost BYN;
+- X = sale / cost;
+- ROI = profit / cost × 100%;
+- zero-price disposal has revenue 0, negative profit, X 0, and ROI -100% when cost is positive.
+
+Monthly purchase/investment and sale/revenue periods are independent. Net profit is realized profit minus monthly expenses, not current-month sales minus current-month purchases.
+
+### Catalog state
+
+Filters are `ВСЕ`, `В НАЛИЧИИ`, `ПРОДАНО`, and `БЕЗ ВЫРУЧКИ`. They map respectively to all active Items, `sale_price_byn is None`, positive sale price, and sale price zero. Zero-sale status text is `УШЛА НА БЛАГОЕ ДЕЛО`; status amber is intentionally separate from negative financial metric red.
+
+### Portfolios
+
+There are two independent portfolio records. `portfolio_id` is identity for Items, expenses, Analytics, Telegram config, channels, offsets, and imports. `Portfolio.name` is editable display text and must not be used to rediscover identity or reset renamed portfolios.
+
+### Telegram
+
+Each portfolio has its own token, channel binding, update offset, imports, API client, importer, and polling worker. Posts are one photo plus a numeric PLN caption; accepted forms include comma or dot decimals. Photos are downloaded locally. Polling is automatic at about 50 seconds and can also be triggered manually.
+
+`TelegramQtWorker.diagnostics` is a typed signal carrying portfolio ID and payload, connected directly to a GUI Qt Slot. Shutdown is cooperative: stop flags/events, API close/interruption, thread quit, and wait. Never restore a global token, log credentials, insert a Python lambda between worker and GUI, or use `QThread.terminate()` as normal shutdown.
+
+### Database and migrations
+
+The current SQLAlchemy model includes portfolios, items, monthly expenses, settings, exchange-rate history, Telegram channels/configs/imports. Alembic migrations are in `alembic/versions/`; `0001` is the initial schema and `0005_portfolio_telegram_configs.py` introduced portfolio-specific Telegram configuration. `initialize_database()` creates directories/schema, applies migrations when needed, and seeds the two required portfolios.
+
+## Analytics
+
+Analytics is a separate window. Its approved groups are `РЕЗУЛЬТАТ`, `ЭФФЕКТИВНОСТЬ`, `ЗАКУПКИ И СКЛАД`, and `СРЕДНИЕ ПОКАЗАТЕЛИ`; graph titles include `ПРОДАЖИ ПО МЕСЯЦАМ`, `ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ`, and `ВЛОЖЕНО ПО МЕСЯЦАМ`. Do not redesign or repaint it through broad Catalog selectors.
+
+## Packaging
+
+`build.ps1` invokes PyInstaller with `run_hjksell.py`, Alembic data, and PySide6 collection, producing clean ONEDIR output. The current uncommitted Neon Graphite font assets are not yet wired into PyInstaller configuration; that remains future packaging work.

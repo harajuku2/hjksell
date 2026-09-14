@@ -6,13 +6,14 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from hjksell.app import build_stylesheet
 from hjksell.database.models import Base, Item, ItemStatus
 from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.services.analytics import AnalyticsPeriod, AnalyticsService, PeriodPreset
 from hjksell.ui.analytics_window import AnalyticsWindow
 from hjksell.ui.main_window import MainWindow
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 
 def make_session() -> Session:
@@ -148,6 +149,41 @@ def test_analytics_kpi_groups_labels_and_semantic_tones() -> None:
         finally:
             window.close()
             app.processEvents()
+
+
+def test_analytics_neon_ui_preserves_structure_font_and_rendered_tones() -> None:
+    app = QApplication.instance() or QApplication([])
+    previous_stylesheet = app.styleSheet()
+    app.setStyleSheet(build_stylesheet("Onest"))
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        item(session, mine.id, date(2026, 9, 1), cost="100", sale="200", sold=date(2026, 9, 10))
+        session.commit()
+        factory = sessionmaker(bind=session.bind, class_=Session, expire_on_commit=False)
+        window = AnalyticsWindow(factory, mine.id)
+        window.show()
+        app.processEvents()
+        try:
+            assert window.centralWidget().objectName() == "analyticsRoot"
+            assert window.portfolio_tabs.objectName() == "analyticsPortfolioTabs"
+            assert window.period_combo.objectName() == "analyticsPeriodCombo"
+            assert window.period_combo.count() == 6
+            assert window.metric_labels["net_profit"].property("tone") == "positive"
+            assert window.metric_labels["expenses"].property("tone") == "amber"
+            assert window.metric_labels["net_profit"].palette().color(
+                window.metric_labels["net_profit"].foregroundRole()
+            ).getRgb()[:3] == (118, 198, 154)
+            assert window.metric_labels["expenses"].palette().color(
+                window.metric_labels["expenses"].foregroundRole()
+            ).getRgb()[:3] == (201, 169, 104)
+            title = window.findChild(QWidget, "analyticsTitle")
+            assert title is not None
+            assert title.font().family() == "Onest"
+            assert title.font().pixelSize() == 29
+        finally:
+            window.close()
+            app.processEvents()
+            app.setStyleSheet(previous_stylesheet)
 
 
 def test_catalogue_monthly_sales_label_uses_sales_terminology() -> None:

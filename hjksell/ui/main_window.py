@@ -10,13 +10,15 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QDate, QThread, QUrl, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QPixmap
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsDropShadowEffect,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -53,6 +55,7 @@ from ..services.telegram import (
 )
 from ..repositories.telegram_repository import TelegramRepository
 from .analytics_window import AnalyticsWindow
+from .neon_widgets import AmbientHeader, GradientLabel
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,13 @@ def item_matches_catalog_filter(item: Item, filter_key: str) -> bool:
     if filter_key == "no_revenue":
         return sale_price == 0
     return True
+
+
+def catalog_metric_tone(value: Decimal | None, neutral_at: Decimal) -> str:
+    """Return the Catalog semantic tone for a calculated metric."""
+    if value is None or value == neutral_at:
+        return "neutral"
+    return "positive" if value > neutral_at else "negative"
 
 
 class ClickableLabel(QLabel):
@@ -317,26 +327,34 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("catalogRoot")
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(18, 14, 18, 12)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(22, 18, 22, 16)
+        root_layout.setSpacing(14)
 
-        toolbar = QHBoxLayout()
-        title = QLabel("HJKsell")
-        title.setObjectName("title")
+        header = AmbientHeader()
+        header.setObjectName("catalogHeader")
+        toolbar = QHBoxLayout(header)
+        toolbar.setSpacing(8)
+        title = GradientLabel("HJKsell", "Onest")
+        title.setObjectName("catalogBrand")
+        title.setToolTip("HJKsell")
         toolbar.addWidget(title)
-        toolbar.addSpacing(18)
+        toolbar.addSpacing(14)
         self.portfolio_tabs = QTabBar()
+        self.portfolio_tabs.setObjectName("catalogPortfolioTabs")
         self.portfolio_tabs.setExpanding(False)
         self.portfolio_tabs.currentChanged.connect(self._portfolio_changed)
         toolbar.addWidget(self.portfolio_tabs)
         self.rename_portfolio_button = QToolButton()
         self.rename_portfolio_button.setText("✎")
+        self.rename_portfolio_button.setObjectName("catalogRenameButton")
         self.rename_portfolio_button.setToolTip("Переименовать текущий портфель")
         self.rename_portfolio_button.clicked.connect(self._rename_current_portfolio)
         toolbar.addWidget(self.rename_portfolio_button)
-        toolbar.addSpacing(16)
+        toolbar.addSpacing(12)
         rate_label = QLabel("PLN → BYN")
+        rate_label.setObjectName("catalogRateLabel")
         self.rate_edit = QLineEdit()
         self.rate_edit.setObjectName("exchangeRate")
         self.rate_edit.setFixedWidth(90)
@@ -346,35 +364,45 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(rate_label)
         toolbar.addWidget(self.rate_edit)
         toolbar.addStretch()
+        actions = QWidget()
+        actions.setObjectName("catalogActions")
+        action_layout = QHBoxLayout(actions)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(6)
         self.analytics_button = QPushButton("АНАЛИТИКА")
-        self.analytics_button.setObjectName("primaryButton")
+        self.analytics_button.setObjectName("catalogSecondaryButton")
         self.analytics_button.setToolTip("Подробная аналитика портфеля")
         self.analytics_button.clicked.connect(self._open_analytics)
-        toolbar.addWidget(self.analytics_button)
+        action_layout.addWidget(self.analytics_button)
         self.add_button = QPushButton("+ ДОБАВИТЬ")
-        self.add_button.setObjectName("primaryButton")
+        self.add_button.setObjectName("catalogPrimaryButton")
         self.add_button.clicked.connect(self._add_item)
-        toolbar.addWidget(self.add_button)
+        action_layout.addWidget(self.add_button)
         self.telegram_button = QPushButton("↻ TELEGRAM")
-        self.telegram_button.setObjectName("primaryButton")
+        self.telegram_button.setObjectName("catalogSecondaryButton")
         self.telegram_button.clicked.connect(self._manual_telegram)
-        toolbar.addWidget(self.telegram_button)
+        action_layout.addWidget(self.telegram_button)
         self.telegram_problems = QToolButton()
         self.telegram_problems.setText("⚠")
+        self.telegram_problems.setObjectName("catalogIconButton")
         self.telegram_problems.setToolTip("Проблемы Telegram")
         self.telegram_problems.setVisible(False)
         self.telegram_problems.clicked.connect(self._show_telegram_problems)
-        toolbar.addWidget(self.telegram_problems)
+        action_layout.addWidget(self.telegram_problems)
         self.telegram_settings = QToolButton()
         self.telegram_settings.setText("⚙")
+        self.telegram_settings.setObjectName("catalogIconButton")
         self.telegram_settings.setToolTip("Настройки Telegram")
         self.telegram_settings.clicked.connect(self._telegram_settings_dialog)
-        toolbar.addWidget(self.telegram_settings)
-        root_layout.addLayout(toolbar)
+        action_layout.addWidget(self.telegram_settings)
+        toolbar.addWidget(actions)
+        root_layout.addWidget(header)
 
         filters = QHBoxLayout()
+        filters.setSpacing(3)
+        filters.setContentsMargins(0, 2, 0, 4)
         filter_label = QLabel("ФИЛЬТР")
-        filter_label.setObjectName("sectionLabel")
+        filter_label.setObjectName("catalogFilterLabel")
         filters.addWidget(filter_label)
         self.filter_buttons: dict[str, QToolButton] = {}
         for key, text in (
@@ -387,7 +415,7 @@ class MainWindow(QMainWindow):
             button.setText(text.upper())
             button.setCheckable(True)
             button.setAutoExclusive(True)
-            button.setObjectName("filterButton")
+            button.setObjectName("catalogFilterButton")
             button.setProperty("filter", key)
             button.clicked.connect(lambda checked, value=key: self._set_filter(value))
             self.filter_buttons[key] = button
@@ -402,7 +430,7 @@ class MainWindow(QMainWindow):
         self.catalogue = QWidget()
         self.catalogue_layout = QVBoxLayout(self.catalogue)
         self.catalogue_layout.setContentsMargins(0, 0, 8, 0)
-        self.catalogue_layout.setSpacing(10)
+        self.catalogue_layout.setSpacing(12)
         self.scroll.setWidget(self.catalogue)
         root_layout.addWidget(self.scroll, 1)
         self.setCentralWidget(root)
@@ -568,7 +596,15 @@ class MainWindow(QMainWindow):
     def _portfolio_changed(self, index: int) -> None:
         if 0 <= index < len(self.portfolios):
             self.current_portfolio_id = self.portfolios[index].id
+            self._set_portfolio_glow()
             self.refresh()
+
+    def _set_portfolio_glow(self) -> None:
+        glow = QGraphicsDropShadowEffect(self.portfolio_tabs)
+        glow.setBlurRadius(24)
+        glow.setOffset(0, 0)
+        glow.setColor(QColor(160, 91, 255, 68))
+        self.portfolio_tabs.setGraphicsEffect(glow)
 
     def _rename_current_portfolio(self) -> None:
         if self.current_portfolio_id is None:
@@ -601,6 +637,15 @@ class MainWindow(QMainWindow):
 
     def _set_filter(self, value: str) -> None:
         self.current_filter = value
+        button = self.filter_buttons[value]
+        glow = QGraphicsDropShadowEffect(button)
+        glow.setBlurRadius(18)
+        glow.setOffset(0, 0)
+        glow.setColor(QColor(160, 91, 255, 77))
+        button.setGraphicsEffect(glow)
+        for other in self.filter_buttons.values():
+            if other is not button:
+                other.setGraphicsEffect(None)
         self.refresh()
 
     def _save_rate(self) -> None:
@@ -658,15 +703,28 @@ class MainWindow(QMainWindow):
                 metrics = analytics.monthly_metrics(self.current_portfolio_id, year, month)
                 self.catalogue_layout.addWidget(self._month_group(session, year, month, month_items, metrics))
         self.catalogue_layout.addStretch()
+        self._repolish_catalog_metric_values()
+
+    def _repolish_catalog_metric_values(self) -> None:
+        for value_widget in self.findChildren(QLabel, "catalogMetricValue"):
+            style = value_widget.style()
+            style.unpolish(value_widget)
+            style.polish(value_widget)
+            value_widget.update()
 
     def _month_group(self, session, year: int, month: int, items: list[Item], metrics: MonthlyMetrics) -> QWidget:
         names = ("ЯНВАРЬ", "ФЕВРАЛЬ", "МАРТ", "АПРЕЛЬ", "МАЙ", "ИЮНЬ", "ИЮЛЬ", "АВГУСТ", "СЕНТЯБРЬ", "ОКТЯБРЬ", "НОЯБРЬ", "ДЕКАБРЬ")
         group = QGroupBox()
+        group.setObjectName("catalogMonthGroup")
         group.setCheckable(True)
         group.setChecked((year, month) == (date.today().year, date.today().month))
         group.setTitle(f"{names[month - 1]} {year}")
         outer = QVBoxLayout(group)
-        stats_row = QHBoxLayout()
+        stats_surface = QWidget()
+        stats_surface.setObjectName("catalogKpiStrip")
+        stats_row = QHBoxLayout(stats_surface)
+        stats_row.setContentsMargins(14, 12, 14, 12)
+        stats_row.setSpacing(4)
         for value, label in (
             (f"{metrics.invested:.2f} BYN", "ВЛОЖЕНО"),
             (str(metrics.purchased_count), "КУПЛЕНО"),
@@ -675,7 +733,13 @@ class MainWindow(QMainWindow):
             ("—" if metrics.average_x is None else f"{metrics.average_x:.2f}x", "СРЕДНИЙ X"),
             ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI"),
         ):
-            stats_row.addWidget(self._metric_block(value, label))
+            stats_row.addWidget(
+                self._metric_block(
+                    value,
+                    label,
+                    value_object_name="catalogKpiPrimaryValue" if label == "ПРОДАЖИ" else "metricValue",
+                )
+            )
         stats_row.addStretch()
         net_value = QLabel(f"{metrics.net_profit:+.2f} BYN")
         net_value.setObjectName("profitValue" if metrics.net_profit >= 0 else "lossValue")
@@ -685,7 +749,7 @@ class MainWindow(QMainWindow):
         net_column.addWidget(net_value)
         net_column.addWidget(net_label)
         stats_row.addLayout(net_column)
-        outer.addLayout(stats_row)
+        outer.addWidget(stats_surface)
         expense = QLineEdit(f"{metrics.expenses:.2f}")
         expense.setObjectName("monthlyExpense")
         expense.setPlaceholderText("Расходы BYN")
@@ -701,7 +765,9 @@ class MainWindow(QMainWindow):
         items_layout = QVBoxLayout(items_container)
         items_layout.setContentsMargins(0, 4, 0, 0)
         for item in items:
-            items_layout.addWidget(self._item_row(item))
+            item_row = self._item_row(item)
+            items_layout.addWidget(item_row)
+        items_layout.setSpacing(8)
         outer.addWidget(items_container)
         group.toggled.connect(items_container.setVisible)
         items_container.setVisible(group.isChecked())
@@ -776,7 +842,10 @@ class MainWindow(QMainWindow):
         info_row.addStretch()
         details.addLayout(info_row)
         metrics = item_metrics(item.sale_price_byn, item.cost_byn)
-        sale_row = QHBoxLayout()
+        sale_row = QGridLayout()
+        sale_row.setObjectName("catalogItemMetrics")
+        sale_row.setHorizontalSpacing(14)
+        sale_row.setVerticalSpacing(0)
         sale_column = QVBoxLayout()
         sale_label = QLabel("ПРОДАЖА")
         sale_label.setObjectName("sectionLabel")
@@ -787,21 +856,23 @@ class MainWindow(QMainWindow):
         sale.returnPressed.connect(lambda edit=sale, current=item: self._sell(current, edit))
         sale_column.addWidget(sale_label)
         sale_column.addWidget(sale)
-        sale_row.addLayout(sale_column)
-        for value, label, object_name in (
-            ("—" if metrics.profit is None else f"{metrics.profit:+.2f} BYN", "ПРИБЫЛЬ", "profitValue"),
-            ("—" if metrics.x is None else f"{metrics.x:.2f}x", "X", "metricValue"),
-            ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI", "profitValue"),
-            ("—" if item.sale_date is None else f"{(item.sale_date - item.purchase_date).days} ДНЕЙ", "ДО ПРОДАЖИ", "metricValue"),
+        sale_row.addLayout(sale_column, 0, 0)
+        for value, label, tone in (
+            ("—" if metrics.profit is None else f"{metrics.profit:+.2f} BYN", "ПРИБЫЛЬ", catalog_metric_tone(metrics.profit, Decimal("0"))),
+            ("—" if metrics.x is None else f"{metrics.x:.2f}x", "X", catalog_metric_tone(metrics.x, Decimal("1"))),
+            ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI", catalog_metric_tone(metrics.roi, Decimal("0"))),
+            ("—" if item.sale_date is None else f"{(item.sale_date - item.purchase_date).days} ДНЕЙ", "ДО ПРОДАЖИ", "neutral"),
         ):
             block = self._metric_block(
                 value,
                 label,
                 label_above=True,
-                value_object_name=object_name,
+                value_object_name="catalogMetricValue",
             )
-            sale_row.addWidget(block)
-        sale_row.addStretch()
+            value_widget = block.layout().itemAt(1).widget()
+            value_widget.setProperty("tone", tone)
+            sale_row.addWidget(block, 0, sale_row.columnCount())
+        sale_row.setColumnStretch(sale_row.columnCount(), 1)
         details.addLayout(sale_row)
         layout.addLayout(details, 1)
         menu_button = QToolButton()
@@ -895,6 +966,10 @@ class MainWindow(QMainWindow):
                 ItemRepository(session).soft_delete(current)
                 session.commit()
         self.refresh()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self._repolish_catalog_metric_values()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         self._stop_telegram_polling()

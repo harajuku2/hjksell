@@ -26,6 +26,7 @@ from ..database.models import Portfolio
 from ..repositories.item_repository import ItemRepository
 from ..repositories.portfolio_repository import PortfolioRepository
 from ..services.analytics import AnalyticsService, PeriodPreset
+from .neon_widgets import GradientLabel
 
 
 class MiniLineChart(QWidget):
@@ -47,16 +48,16 @@ class MiniLineChart(QWidget):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#151920"))
-        painter.setPen(QColor("#dfe5ed"))
+        painter.fillRect(self.rect(), QColor("#101014"))
+        painter.setPen(QColor("#cfc2df"))
         painter.drawText(14, 22, self.title)
         left, top, right, bottom = 14, 36, self.width() - 12, self.height() - 28
         if right <= left or bottom <= top:
             return
-        painter.setPen(QPen(QColor("#29313d"), 1))
+        painter.setPen(QPen(QColor("#2d2638"), 1))
         painter.drawLine(left, bottom, right, bottom)
         if not self.values:
-            painter.setPen(QColor("#7f8996"))
+            painter.setPen(QColor("#91899c"))
             painter.drawText(left, (top + bottom) // 2, "Нет данных за период")
             return
         low, high = min(0.0, min(self.values)), max(0.0, max(self.values))
@@ -71,21 +72,21 @@ class MiniLineChart(QWidget):
             return x, y
 
         zero_y = top + int((high / (high - low)) * height)
-        painter.setPen(QPen(QColor("#394453"), 1, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(QColor("#493b58"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(left, zero_y, right, zero_y)
         path = QPainterPath()
         first = point(0)
         path.moveTo(*first)
         for index in range(1, len(self.values)):
             path.lineTo(*point(index))
-        painter.setPen(QPen(QColor("#86a9d2"), 2))
+        painter.setPen(QPen(QColor("#a66be0"), 2))
         painter.drawPath(path)
-        painter.setBrush(QColor("#86a9d2"))
+        painter.setBrush(QColor("#c9a6ee"))
         painter.setPen(Qt.PenStyle.NoPen)
         for index in range(len(self.values)):
             x, y = point(index)
             painter.drawEllipse(x - 3, y - 3, 6, 6)
-        painter.setPen(QColor("#7f8996"))
+        painter.setPen(QColor("#91899c"))
         for index, label in enumerate(self.labels):
             if index in (0, len(self.labels) - 1) or len(self.labels) <= 6:
                 x, _y = point(index)
@@ -123,19 +124,29 @@ class AnalyticsWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("analyticsRoot")
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(22, 18, 22, 18)
-        layout.setSpacing(12)
-        header = QHBoxLayout()
-        title = QLabel("АНАЛИТИКА")
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        header_surface = QWidget()
+        header_surface.setObjectName("analyticsHeader")
+        header = QHBoxLayout(header_surface)
+        header.setContentsMargins(2, 0, 2, 2)
+        header.setSpacing(10)
+        title = GradientLabel("АНАЛИТИКА", "Onest")
         title.setObjectName("analyticsTitle")
         header.addWidget(title)
+        header.addSpacing(12)
         self.portfolio_tabs = QTabBar()
+        self.portfolio_tabs.setObjectName("analyticsPortfolioTabs")
         self.portfolio_tabs.currentChanged.connect(self._portfolio_changed)
         header.addWidget(self.portfolio_tabs)
         header.addStretch()
-        header.addWidget(QLabel("ПЕРИОД"))
+        period_label = QLabel("ПЕРИОД")
+        period_label.setObjectName("analyticsControlLabel")
+        header.addWidget(period_label)
         self.period_combo = QComboBox()
+        self.period_combo.setObjectName("analyticsPeriodCombo")
         for preset, text in (
             (PeriodPreset.CURRENT_MONTH, "Текущий месяц"),
             (PeriodPreset.PREVIOUS_MONTH, "Предыдущий месяц"),
@@ -151,13 +162,16 @@ class AnalyticsWindow(QMainWindow):
         back.setObjectName("analyticsBack")
         back.clicked.connect(self.close)
         header.addWidget(back)
-        layout.addLayout(header)
+        layout.addWidget(header_surface)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content = QWidget()
+        content.setObjectName("analyticsContent")
         content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 2, 6, 10)
+        content_layout.setSpacing(10)
         self.period_label = QLabel()
         self.period_label.setObjectName("analyticsSubtitle")
         content_layout.addWidget(self.period_label)
@@ -214,13 +228,15 @@ class AnalyticsWindow(QMainWindow):
             section = QGroupBox(title)
             section.setObjectName(section_object_name)
             section_layout = QGridLayout(section)
-            section_layout.setContentsMargins(12, 18, 12, 12)
-            section_layout.setHorizontalSpacing(18)
-            section_layout.setVerticalSpacing(12)
+            section_layout.setContentsMargins(14, 22, 14, 12)
+            section_layout.setHorizontalSpacing(10)
+            section_layout.setVerticalSpacing(8)
             for index, (key, label) in enumerate(fields):
                 card = QWidget()
+                card.setObjectName("analyticsMetricCell")
                 card_layout = QVBoxLayout(card)
-                card_layout.setContentsMargins(0, 0, 0, 0)
+                card_layout.setContentsMargins(10, 8, 10, 8)
+                card_layout.setSpacing(3)
                 value = QLabel("—")
                 value.setObjectName(value_object_name)
                 caption = QLabel(label)
@@ -228,12 +244,17 @@ class AnalyticsWindow(QMainWindow):
                 card_layout.addWidget(value)
                 card_layout.addWidget(caption)
                 self.metric_labels[key] = value
-                section_layout.addWidget(card, index // 4, index % 4)
+                columns = 5 if title in {"РЕЗУЛЬТАТ", "ЭФФЕКТИВНОСТЬ"} else 4
+                section_layout.addWidget(card, index // columns, index % columns)
             content_layout.addWidget(section)
         charts = QHBoxLayout()
+        charts.setSpacing(10)
         self.revenue_chart = MiniLineChart("ПРОДАЖИ ПО МЕСЯЦАМ")
+        self.revenue_chart.setObjectName("analyticsChart")
         self.profit_chart = MiniLineChart("ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ")
+        self.profit_chart.setObjectName("analyticsChart")
         self.invested_chart = MiniLineChart("ВЛОЖЕНО ПО МЕСЯЦАМ")
+        self.invested_chart.setObjectName("analyticsChart")
         charts.addWidget(self.revenue_chart)
         charts.addWidget(self.profit_chart)
         charts.addWidget(self.invested_chart)
@@ -242,6 +263,13 @@ class AnalyticsWindow(QMainWindow):
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
         self.setCentralWidget(root)
+
+    def _repolish_metric_labels(self) -> None:
+        for label in self.metric_labels.values():
+            style = label.style()
+            style.unpolish(label)
+            style.polish(label)
+            label.update()
 
     def _load_portfolios(self) -> None:
         with self.session_factory() as session:
@@ -305,7 +333,12 @@ class AnalyticsWindow(QMainWindow):
                 label.setProperty("tone", "neutral")
             label.style().unpolish(label)
             label.style().polish(label)
+        self._repolish_metric_labels()
         labels = [entry.label for entry in monthly]
         self.revenue_chart.set_data(labels, [entry.revenue for entry in monthly])
         self.profit_chart.set_data(labels, [entry.net_profit for entry in monthly])
         self.invested_chart.set_data(labels, [entry.invested for entry in monthly])
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self._repolish_metric_labels()
