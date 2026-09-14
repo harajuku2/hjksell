@@ -48,7 +48,7 @@ class ItemRepository:
             return None
         return item
 
-    def set_monthly_expense(self, portfolio_id: int, year: int, month: int, amount_byn: Decimal) -> MonthlyExpense:
+    def _monthly_expense(self, portfolio_id: int, year: int, month: int) -> MonthlyExpense:
         statement = select(MonthlyExpense).where(
             MonthlyExpense.portfolio_id == portfolio_id,
             MonthlyExpense.year == year,
@@ -56,10 +56,25 @@ class ItemRepository:
         )
         expense = self.session.scalar(statement)
         if expense is None:
-            expense = MonthlyExpense(portfolio_id=portfolio_id, year=year, month=month, amount_byn=amount_byn)
+            expense = MonthlyExpense(portfolio_id=portfolio_id, year=year, month=month, amount_byn=Decimal("0.00"))
             self.session.add(expense)
-        else:
-            expense.amount_byn = amount_byn
+        return expense
+
+    def set_monthly_expense(self, portfolio_id: int, year: int, month: int, amount_byn: Decimal) -> MonthlyExpense:
+        expense = self._monthly_expense(portfolio_id, year, month)
+        expense.amount_byn = amount_byn
+        self.session.flush()
+        return expense
+
+    def set_monthly_other_income(self, portfolio_id: int, year: int, month: int, amount_byn: Decimal) -> MonthlyExpense:
+        expense = self._monthly_expense(portfolio_id, year, month)
+        expense.other_income_byn = amount_byn
+        self.session.flush()
+        return expense
+
+    def set_monthly_advertising(self, portfolio_id: int, year: int, month: int, amount_byn: Decimal) -> MonthlyExpense:
+        expense = self._monthly_expense(portfolio_id, year, month)
+        expense.advertising_byn = amount_byn
         self.session.flush()
         return expense
 
@@ -70,6 +85,18 @@ class ItemRepository:
             MonthlyExpense.month == month,
         )
         return self.session.scalar(statement) or Decimal("0.00")
+
+    def monthly_income(self, portfolio_id: int, year: int, month: int) -> tuple[Decimal, Decimal]:
+        statement = select(MonthlyExpense.other_income_byn, MonthlyExpense.advertising_byn).where(
+            MonthlyExpense.portfolio_id == portfolio_id,
+            MonthlyExpense.year == year,
+            MonthlyExpense.month == month,
+        )
+        values = self.session.execute(statement).one_or_none()
+        return (
+            (values[0] if values and values[0] is not None else Decimal("0.00")),
+            (values[1] if values and values[1] is not None else Decimal("0.00")),
+        )
 
     def monthly_expenses_between(self, portfolio_id: int, start_date: date, end_date: date) -> list[tuple[int, int, Decimal]]:
         """Return expense rows whose calendar month overlaps an inclusive period."""
@@ -85,9 +112,45 @@ class ItemRepository:
                 result.append((year, month, amount))
         return result
 
+    def monthly_financials_between(
+        self, portfolio_id: int, start_date: date, end_date: date
+    ) -> list[tuple[int, int, Decimal, Decimal, Decimal]]:
+        """Return expense and income rows whose calendar month overlaps a period."""
+        statement = select(
+            MonthlyExpense.year,
+            MonthlyExpense.month,
+            MonthlyExpense.amount_byn,
+            MonthlyExpense.other_income_byn,
+            MonthlyExpense.advertising_byn,
+        ).where(MonthlyExpense.portfolio_id == portfolio_id)
+        result = []
+        for year, month, amount, other_income, advertising in self.session.execute(statement):
+            month_start = date(year, month, 1)
+            if date(start_date.year, start_date.month, 1) <= month_start <= date(end_date.year, end_date.month, 1):
+                result.append((year, month, amount, other_income or Decimal("0.00"), advertising or Decimal("0.00")))
+        return result
+
     def all_monthly_expenses(self, portfolio_id: int | None) -> list[tuple[int, int, Decimal]]:
         conditions = [] if portfolio_id is None else [MonthlyExpense.portfolio_id == portfolio_id]
-        return list(self.session.execute(select(MonthlyExpense.year, MonthlyExpense.month, MonthlyExpense.amount_byn).where(*conditions)))
+        return list(
+            self.session.execute(
+                select(MonthlyExpense.year, MonthlyExpense.month, MonthlyExpense.amount_byn).where(*conditions)
+            )
+        )
+
+    def all_monthly_financials(self, portfolio_id: int | None) -> list[tuple[int, int, Decimal, Decimal, Decimal]]:
+        conditions = [] if portfolio_id is None else [MonthlyExpense.portfolio_id == portfolio_id]
+        return list(
+            self.session.execute(
+                select(
+                    MonthlyExpense.year,
+                    MonthlyExpense.month,
+                    MonthlyExpense.amount_byn,
+                    MonthlyExpense.other_income_byn,
+                    MonthlyExpense.advertising_byn,
+                ).where(*conditions)
+            )
+        )
 
     def soft_delete(self, item: Item) -> None:
         item.deleted_at = datetime.now()

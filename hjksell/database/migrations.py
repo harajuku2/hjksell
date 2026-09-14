@@ -28,6 +28,7 @@ def upgrade_database(engine: Engine, paths: AppPaths) -> None:
         # Older HJKsell releases created the current model directly. Preserve
         # those databases and mark them at the current migration head.
         if inspector.has_table("portfolios"):
+            _ensure_legacy_monthly_income_columns(engine)
             config = Config()
             config.set_main_option("script_location", str(migrations_path()))
             config.set_main_option("sqlalchemy.url", f"sqlite:///{paths.database.as_posix()}")
@@ -53,5 +54,20 @@ def _ensure_head_marker(engine: Engine) -> None:
         connection.execute(text("DELETE FROM alembic_version"))
         connection.execute(
             text("INSERT INTO alembic_version (version_num) VALUES (:version)"),
-            {"version": "0004_discovered_telegram_channels"},
+            {"version": "0006_monthly_income_fields"},
         )
+
+
+def _ensure_legacy_monthly_income_columns(engine: Engine) -> None:
+    """Add fields to pre-Alembic databases without rebuilding user tables."""
+
+    columns = {column["name"] for column in inspect(engine).get_columns("monthly_expenses")}
+    with engine.begin() as connection:
+        for name in ("other_income_byn", "advertising_byn"):
+            if name not in columns:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE monthly_expenses ADD COLUMN {name} "
+                        "NUMERIC(12, 2) NOT NULL DEFAULT 0"
+                    )
+                )

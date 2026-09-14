@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage, QPainter
 from sqlalchemy import create_engine
@@ -85,6 +86,37 @@ def test_sale_validation_and_repository_status() -> None:
         service.sell(item, "200,5", date(2026, 9, 12))
         assert item.status == ItemStatus.SOLD.value
         assert item.sale_price_byn == Decimal("200.50")
+
+
+def test_free_item_is_valid_and_has_undefined_efficiency_metrics() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        item = service.create_from_text(mine.id, "0", date(2026, 9, 1))
+        assert item.purchase_price_pln == Decimal("0.00")
+        assert item.cost_byn == Decimal("0.00")
+        unsold_metrics = item_metrics(None, item.cost_byn)
+        assert unsold_metrics.profit is None
+        assert unsold_metrics.x is None
+        assert unsold_metrics.roi is None
+        service.sell(item, "100", date(2026, 9, 12))
+        metrics = item_metrics(item.sale_price_byn, item.cost_byn)
+        assert metrics.profit == Decimal("100.00")
+        assert metrics.x is None
+        assert metrics.roi is None
+        service.sell(item, "0", date(2026, 9, 13))
+        metrics = item_metrics(item.sale_price_byn, item.cost_byn)
+        assert metrics.profit == Decimal("0.00")
+        assert metrics.x is None
+        assert metrics.roi is None
+
+
+def test_negative_purchase_price_is_rejected() -> None:
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        service = ItemService(ItemRepository(session), SettingsRepository(session))
+        with pytest.raises(ValueError):
+            service.create_from_text(mine.id, "-1", date(2026, 9, 1))
 
 
 def test_sale_can_be_cancelled_and_sold_again_with_new_date() -> None:
@@ -177,6 +209,36 @@ def test_catalog_metric_tone_qss_updates_actual_foreground_color() -> None:
         app.processEvents()
 
 
+def test_catalog_cost_value_renders_violet() -> None:
+    app = QApplication.instance() or QApplication([])
+    previous_stylesheet = app.styleSheet()
+    app.setStyleSheet(build_stylesheet("Onest"))
+    root = QWidget()
+    root.setObjectName("catalogRoot")
+    value = QLabel("0.85 BYN", root)
+    value.setObjectName("catalogCostValue")
+    value.resize(120, 30)
+    root.show()
+    app.processEvents()
+    try:
+        image = QImage(value.size(), QImage.Format.Format_ARGB32)
+        image.fill(QColor("#09090b"))
+        painter = QPainter(image)
+        value.render(painter, QPoint(0, 0))
+        painter.end()
+        colors = {}
+        for y in range(image.height()):
+            for x in range(image.width()):
+                rgb = image.pixelColor(x, y).getRgb()[:3]
+                if rgb not in {(9, 9, 11), (14, 17, 23)}:
+                    colors[rgb] = colors.get(rgb, 0) + 1
+        assert max(colors, key=colors.get) == (201, 166, 238)
+    finally:
+        root.deleteLater()
+        app.setStyleSheet(previous_stylesheet)
+        app.processEvents()
+
+
 def test_catalog_main_window_renders_metric_tones_in_item_rows() -> None:
     app = QApplication.instance() or QApplication([])
     previous_stylesheet = app.styleSheet()
@@ -209,21 +271,22 @@ def test_catalog_main_window_renders_metric_tones_in_item_rows() -> None:
         app.processEvents()
         try:
             rendered = {}
-            for label in window.findChildren(QLabel, "catalogMetricValue"):
-                if label.text() in {"+415.00 BYN", "-75.00 BYN"}:
-                    image = QImage(label.size(), QImage.Format.Format_ARGB32)
-                    image.fill(QColor("#09090b"))
-                    painter = QPainter(image)
-                    label.render(painter, QPoint(0, 0))
-                    painter.end()
-                    colors = {}
-                    for y in range(image.height()):
-                        for x in range(image.width()):
-                            color = image.pixelColor(x, y)
-                            rgb = (color.red(), color.green(), color.blue())
-                            if rgb not in {(9, 9, 11), (14, 17, 23)}:
-                                colors[rgb] = colors.get(rgb, 0) + 1
-                    rendered[label.text()] = max(colors, key=colors.get)
+            for object_name in ("catalogMetricValue", "catalogPrimaryMetricValue"):
+                for label in window.findChildren(QLabel, object_name):
+                    if label.text() in {"+415.00 BYN", "-75.00 BYN"}:
+                        image = QImage(label.size(), QImage.Format.Format_ARGB32)
+                        image.fill(QColor("#09090b"))
+                        painter = QPainter(image)
+                        label.render(painter, QPoint(0, 0))
+                        painter.end()
+                        colors = {}
+                        for y in range(image.height()):
+                            for x in range(image.width()):
+                                color = image.pixelColor(x, y)
+                                rgb = (color.red(), color.green(), color.blue())
+                                if rgb not in {(9, 9, 11), (14, 17, 23)}:
+                                    colors[rgb] = colors.get(rgb, 0) + 1
+                        rendered[label.text()] = max(colors, key=colors.get)
             assert rendered == {
                 "+415.00 BYN": (118, 198, 154),
                 "-75.00 BYN": (217, 130, 130),
@@ -421,15 +484,17 @@ def test_item_menu_actions_ignore_qt_checked_argument() -> None:
     assert received == [item]
 
 
-def test_item_calculated_metric_blocks_put_labels_above_values() -> None:
+def test_item_metric_blocks_put_values_above_labels() -> None:
     app = QApplication.instance() or QApplication([])
-    block = MainWindow._metric_block("+68.00 BYN", "ПРИБЫЛЬ", label_above=True, value_object_name="profitValue")
+    block = MainWindow._metric_block("+68.00 BYN", "ПРИБЫЛЬ", value_object_name="profitValue")
     try:
         layout = block.layout()
         assert layout is not None
-        assert layout.itemAt(0).widget().text() == "ПРИБЫЛЬ"
-        assert layout.itemAt(1).widget().text() == "+68.00 BYN"
-        assert layout.itemAt(1).widget().objectName() == "profitValue"
+        assert layout.spacing() == 4
+        assert block.sizePolicy().verticalPolicy().name == "Fixed"
+        assert layout.itemAt(0).widget().text() == "+68.00 BYN"
+        assert layout.itemAt(0).widget().objectName() == "profitValue"
+        assert layout.itemAt(1).widget().text() == "ПРИБЫЛЬ"
     finally:
         block.deleteLater()
         app.processEvents()

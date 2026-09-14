@@ -56,6 +56,7 @@ from ..services.telegram import (
 from ..repositories.telegram_repository import TelegramRepository
 from .analytics_window import AnalyticsWindow
 from .neon_widgets import AmbientHeader, GradientLabel
+from .typography import Typography, TypographyRole
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ class AddItemDialog(QDialog):
 
     def _update_cost(self, text: str) -> None:
         try:
-            self.cost_preview.setText(f"{calculate_cost(parse_decimal(text, positive=True), self.current_rate):.2f} BYN")
+            self.cost_preview.setText(f"{calculate_cost(parse_decimal(text, non_negative=True), self.current_rate):.2f} BYN")
         except (ValueError, ArithmeticError):
             self.cost_preview.setText("—")
 
@@ -304,12 +305,14 @@ class MainWindow(QMainWindow):
         self,
         session_factory: Callable | None = None,
         paths: AppPaths | None = None,
+        typography: Typography | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("HJKsell")
         self.resize(1120, 820)
         self.setMinimumSize(800, 600)
         self.paths = ensure_app_directories(paths or get_app_paths())
+        self.typography = typography or Typography.fallback()
         if session_factory is None:
             _engine, session_factory = initialize_database(self.paths)
         self.session_factory = session_factory
@@ -336,7 +339,7 @@ class MainWindow(QMainWindow):
         header.setObjectName("catalogHeader")
         toolbar = QHBoxLayout(header)
         toolbar.setSpacing(8)
-        title = GradientLabel("HJKsell", "Onest")
+        title = GradientLabel("HJKsell", self.typography.family(TypographyRole.DISPLAY))
         title.setObjectName("catalogBrand")
         title.setToolTip("HJKsell")
         toolbar.addWidget(title)
@@ -357,7 +360,7 @@ class MainWindow(QMainWindow):
         rate_label.setObjectName("catalogRateLabel")
         self.rate_edit = QLineEdit()
         self.rate_edit.setObjectName("exchangeRate")
-        self.rate_edit.setFixedWidth(90)
+        self.rate_edit.setFixedWidth(100)
         self.rate_edit.setToolTip("Текущий курс для новых покупок")
         self.rate_edit.returnPressed.connect(self._save_rate)
         self.rate_edit.editingFinished.connect(self._save_rate)
@@ -443,7 +446,12 @@ class MainWindow(QMainWindow):
             self._analytics_window.activateWindow()
             self._analytics_window.refresh()
             return
-        self._analytics_window = AnalyticsWindow(self.session_factory, self.current_portfolio_id, self)
+        self._analytics_window = AnalyticsWindow(
+            self.session_factory,
+            self.current_portfolio_id,
+            self,
+            typography=self.typography,
+        )
         self._analytics_window.destroyed.connect(lambda: setattr(self, "_analytics_window", None))
         self._analytics_window.show()
 
@@ -661,8 +669,12 @@ class MainWindow(QMainWindow):
                 self.rate_edit.setText(f"{SettingsRepository(session).current_exchange_rate():.4f}")
 
     @staticmethod
-    def _months(items: list[Item]) -> list[tuple[int, int]]:
+    def _months(
+        items: list[Item],
+        financial_periods: list[tuple[int, int]] | None = None,
+    ) -> list[tuple[int, int]]:
         periods = {(item.purchase_date.year, item.purchase_date.month) for item in items}
+        periods.update(financial_periods or ())
         today = date.today()
         periods.add((today.year, today.month))
         return sorted(periods, reverse=True)
@@ -677,6 +689,11 @@ class MainWindow(QMainWindow):
         with self.session_factory() as session:
             repository = ItemRepository(session)
             all_items = repository.active_items(self.current_portfolio_id)
+            financial_periods = [
+                (year, month)
+                for year, month, _expense, _other_income, _advertising
+                in repository.all_monthly_financials(self.current_portfolio_id)
+            ]
             visible = [item for item in all_items if item_matches_catalog_filter(item, self.current_filter)]
             analytics = AnalyticsService(repository)
             if not visible:
@@ -698,7 +715,7 @@ class MainWindow(QMainWindow):
                     empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     empty.setMinimumHeight(180)
                     self.catalogue_layout.addWidget(empty)
-            for year, month in self._months(all_items):
+            for year, month in self._months(all_items, financial_periods):
                 month_items = [item for item in visible if item.purchase_date.year == year and item.purchase_date.month == month]
                 metrics = analytics.monthly_metrics(self.current_portfolio_id, year, month)
                 self.catalogue_layout.addWidget(self._month_group(session, year, month, month_items, metrics))
@@ -706,11 +723,12 @@ class MainWindow(QMainWindow):
         self._repolish_catalog_metric_values()
 
     def _repolish_catalog_metric_values(self) -> None:
-        for value_widget in self.findChildren(QLabel, "catalogMetricValue"):
-            style = value_widget.style()
-            style.unpolish(value_widget)
-            style.polish(value_widget)
-            value_widget.update()
+        for object_name in ("catalogMetricValue", "catalogPrimaryMetricValue", "catalogCostValue", "catalogHeroValue"):
+            for value_widget in self.findChildren(QLabel, object_name):
+                style = value_widget.style()
+                style.unpolish(value_widget)
+                style.polish(value_widget)
+                value_widget.update()
 
     def _month_group(self, session, year: int, month: int, items: list[Item], metrics: MonthlyMetrics) -> QWidget:
         names = ("ЯНВАРЬ", "ФЕВРАЛЬ", "МАРТ", "АПРЕЛЬ", "МАЙ", "ИЮНЬ", "ИЮЛЬ", "АВГУСТ", "СЕНТЯБРЬ", "ОКТЯБРЬ", "НОЯБРЬ", "ДЕКАБРЬ")
@@ -742,7 +760,8 @@ class MainWindow(QMainWindow):
             )
         stats_row.addStretch()
         net_value = QLabel(f"{metrics.net_profit:+.2f} BYN")
-        net_value.setObjectName("profitValue" if metrics.net_profit >= 0 else "lossValue")
+        net_value.setObjectName("catalogHeroValue")
+        net_value.setProperty("tone", "positive" if metrics.net_profit > 0 else "negative" if metrics.net_profit < 0 else "neutral")
         net_label = QLabel("ЧИСТАЯ ПРИБЫЛЬ")
         net_label.setObjectName("metricLabel")
         net_column = QVBoxLayout()
@@ -750,15 +769,27 @@ class MainWindow(QMainWindow):
         net_column.addWidget(net_label)
         stats_row.addLayout(net_column)
         outer.addWidget(stats_surface)
-        expense = QLineEdit(f"{metrics.expenses:.2f}")
-        expense.setObjectName("monthlyExpense")
-        expense.setPlaceholderText("Расходы BYN")
-        expense.setMaximumWidth(140)
-        expense.setToolTip("Расходы месяца в BYN")
-        expense.editingFinished.connect(lambda e=expense, y=year, m=month: self._save_expense(e, y, m))
         expense_row = QHBoxLayout()
-        expense_row.addWidget(QLabel("РАСХОДЫ"))
-        expense_row.addWidget(expense)
+        for label, value, object_name, tooltip in (
+            ("РАСХОДЫ", metrics.expenses, "monthlyExpense", "Расходы месяца в BYN"),
+            ("ДРУГИЕ ДОХОДЫ", metrics.other_income, "monthlyOtherIncome", "Комиссия за продажи чужих вещей в BYN"),
+            ("РЕКЛАМА", metrics.advertising, "monthlyAdvertising", "Доход от рекламы в BYN"),
+        ):
+            edit = QLineEdit(f"{value:.2f}")
+            edit.setObjectName(object_name)
+            edit.setPlaceholderText("BYN")
+            edit.setMaximumWidth(140)
+            edit.setToolTip(tooltip)
+            edit.editingFinished.connect(
+                lambda e=edit, y=year, m=month, field=object_name: self._save_monthly_value(e, y, m, field)
+            )
+            field_layout = QVBoxLayout()
+            field_layout.setSpacing(2)
+            label_widget = QLabel(label)
+            label_widget.setObjectName("sectionLabel")
+            field_layout.addWidget(label_widget)
+            field_layout.addWidget(edit)
+            expense_row.addLayout(field_layout)
         expense_row.addStretch()
         outer.addLayout(expense_row)
         items_container = QWidget()
@@ -778,22 +809,34 @@ class MainWindow(QMainWindow):
         value: str,
         label: str,
         *,
-        label_above: bool = False,
         value_object_name: str = "metricValue",
     ) -> QWidget:
         block = QWidget()
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 18, 0)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        block.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         value_label = QLabel(value)
         value_label.setObjectName(value_object_name)
         label_widget = QLabel(label)
         label_widget.setObjectName("metricLabel")
-        if label_above:
-            layout.addWidget(label_widget)
-            layout.addWidget(value_label)
-        else:
-            layout.addWidget(value_label)
-            layout.addWidget(label_widget)
+        layout.addWidget(value_label)
+        layout.addWidget(label_widget)
+        return block
+
+    @staticmethod
+    def _metric_editor_block(label: str, editor: QLineEdit) -> QWidget:
+        block = QWidget()
+        layout = QVBoxLayout(block)
+        layout.setContentsMargins(0, 0, 18, 0)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        block.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        label_widget = QLabel(label)
+        label_widget.setObjectName("sectionLabel")
+        layout.addWidget(editor)
+        layout.addWidget(label_widget)
         return block
 
     def _item_row(self, item: Item) -> QWidget:
@@ -818,7 +861,7 @@ class MainWindow(QMainWindow):
         date_label = QLabel(
             f"{item.purchase_date.day:02d} {month_names[item.purchase_date.month - 1]} {item.purchase_date.year}"
         )
-        date_label.setObjectName("sectionLabel")
+        date_label.setObjectName("catalogItemDate")
         details.addWidget(date_label)
         info_row = QHBoxLayout()
         for value, label in (
@@ -826,7 +869,13 @@ class MainWindow(QMainWindow):
             (f"{item.cost_byn:.2f} BYN", "СЕБЕСТОИМОСТЬ"),
             (f"{item.exchange_rate:.4f}", "КУРС"),
         ):
-            info_row.addWidget(self._metric_block(value, label))
+            info_row.addWidget(
+                self._metric_block(
+                    value,
+                    label,
+                    value_object_name="catalogCostValue" if label == "СЕБЕСТОИМОСТЬ" else "metricValue",
+                )
+            )
         if item.sale_price_byn is None:
             status_text = "● В НАЛИЧИИ"
             status_object_name = "statusStock"
@@ -846,17 +895,12 @@ class MainWindow(QMainWindow):
         sale_row.setObjectName("catalogItemMetrics")
         sale_row.setHorizontalSpacing(14)
         sale_row.setVerticalSpacing(0)
-        sale_column = QVBoxLayout()
-        sale_label = QLabel("ПРОДАЖА")
-        sale_label.setObjectName("sectionLabel")
         sale = QLineEdit("" if item.sale_price_byn is None else f"{item.sale_price_byn:.2f}")
         sale.setPlaceholderText("ВВЕСТИ СУММУ")
         sale.setObjectName("saleInput")
         sale.setFixedWidth(150)
         sale.returnPressed.connect(lambda edit=sale, current=item: self._sell(current, edit))
-        sale_column.addWidget(sale_label)
-        sale_column.addWidget(sale)
-        sale_row.addLayout(sale_column, 0, 0)
+        sale_row.addWidget(self._metric_editor_block("ПРОДАЖА", sale), 0, 0)
         for value, label, tone in (
             ("—" if metrics.profit is None else f"{metrics.profit:+.2f} BYN", "ПРИБЫЛЬ", catalog_metric_tone(metrics.profit, Decimal("0"))),
             ("—" if metrics.x is None else f"{metrics.x:.2f}x", "X", catalog_metric_tone(metrics.x, Decimal("1"))),
@@ -866,10 +910,9 @@ class MainWindow(QMainWindow):
             block = self._metric_block(
                 value,
                 label,
-                label_above=True,
-                value_object_name="catalogMetricValue",
+                value_object_name="catalogPrimaryMetricValue" if label == "ПРИБЫЛЬ" else "catalogMetricValue",
             )
-            value_widget = block.layout().itemAt(1).widget()
+            value_widget = block.layout().itemAt(0).widget()
             value_widget.setProperty("tone", tone)
             sale_row.addWidget(block, 0, sale_row.columnCount())
         sale_row.setColumnStretch(sale_row.columnCount(), 1)
@@ -903,17 +946,24 @@ class MainWindow(QMainWindow):
             edit.setStyleSheet("border:1px solid #df6262;")
             edit.setToolTip(str(exc))
 
-    def _save_expense(self, edit: QLineEdit, year: int, month: int) -> None:
+    def _save_monthly_value(self, edit: QLineEdit, year: int, month: int, field: str) -> None:
         try:
-            value = parse_decimal(edit.text(), field_name="расходы")
+            value = parse_decimal(edit.text(), field_name="сумму")
             if value < 0:
-                raise ValueError("Расходы не могут быть отрицательными.")
+                raise ValueError("Месячные значения не могут быть отрицательными.")
             with self.session_factory() as session:
-                ItemRepository(session).set_monthly_expense(self.current_portfolio_id, year, month, value.quantize(Decimal("0.01")))
+                repository = ItemRepository(session)
+                amount = value.quantize(Decimal("0.01"))
+                setters = {
+                    "monthlyExpense": repository.set_monthly_expense,
+                    "monthlyOtherIncome": repository.set_monthly_other_income,
+                    "monthlyAdvertising": repository.set_monthly_advertising,
+                }
+                setters[field](self.current_portfolio_id, year, month, amount)
                 session.commit()
             self.refresh()
         except ValueError as exc:
-            QMessageBox.warning(self, "Расходы", str(exc))
+            QMessageBox.warning(self, "Месячные значения", str(exc))
 
     def _add_item(self) -> None:
         try:

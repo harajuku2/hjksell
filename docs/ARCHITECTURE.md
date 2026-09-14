@@ -20,6 +20,7 @@ Important modules:
 
 - `hjksell/ui/main_window.py`: Catalog, portfolio tabs, filters, Item rows, sale editing, expenses, Telegram settings/polling ownership.
 - `hjksell/ui/analytics_window.py`: separate Analytics window and four approved KPI groups.
+- `hjksell/ui/typography.py`: runtime font registration and semantic display, interface, metric, and input roles. All visible roles currently resolve to registered Oswald; Kulag Sha remains registered and packaged for reversible experimentation.
 - `hjksell/services/items.py`: Item creation and sale/cancel transitions.
 - `hjksell/services/finance.py`: Decimal cost, profit, X, ROI, and parsing.
 - `hjksell/services/analytics.py`: period-aware metrics; internal `revenue` naming remains.
@@ -38,9 +39,11 @@ Sale input is BYN. A positive or zero value completes a sale and records a sale 
 ### Financial semantics
 
 - profit = sale BYN - historical cost BYN;
-- X = sale / cost;
-- ROI = profit / cost × 100%;
+- X = sale / cost when cost is non-zero;
+- ROI = profit / cost × 100% when cost is non-zero;
 - zero-price disposal has revenue 0, negative profit, X 0, and ROI -100% when cost is positive.
+- Free Items may have zero historical cost; their profit is still calculated, while X and ROI are undefined and displayed as `—`.
+- Monthly `other_income_byn` and `advertising_byn` are stored with expenses by `portfolio_id` and calendar month. Other income contributes to `ПРОДАЖИ` and `ЧИСТАЯ ПРИБЫЛЬ`; advertising contributes only to `ЧИСТАЯ ПРИБЫЛЬ`.
 
 Monthly purchase/investment and sale/revenue periods are independent. Net profit is realized profit minus monthly expenses, not current-month sales minus current-month purchases.
 
@@ -60,7 +63,7 @@ Each portfolio has its own token, channel binding, update offset, imports, API c
 
 ### Database and migrations
 
-The current SQLAlchemy model includes portfolios, items, monthly expenses, settings, exchange-rate history, Telegram channels/configs/imports. Alembic migrations are in `alembic/versions/`; `0001` is the initial schema and `0005_portfolio_telegram_configs.py` introduced portfolio-specific Telegram configuration. `initialize_database()` creates directories/schema, applies migrations when needed, and seeds the two required portfolios.
+The current SQLAlchemy model includes portfolios, items, monthly expenses/income, settings, exchange-rate history, Telegram channels/configs/imports. Alembic migrations are in `alembic/versions/`; `0001` is the initial schema, `0005_portfolio_telegram_configs.py` introduced portfolio-specific Telegram configuration, and `0006_monthly_income_fields.py` adds the two monthly income columns. `initialize_database()` creates directories/schema, applies migrations when needed, and seeds the two required portfolios.
 
 ## Analytics
 
@@ -68,4 +71,4 @@ Analytics is a separate window. Its approved groups are `РЕЗУЛЬТАТ`, `�
 
 ## Packaging
 
-`build.ps1` invokes PyInstaller with `run_hjksell.py`, Alembic data, and PySide6 collection, producing clean ONEDIR output. The current uncommitted Neon Graphite font assets are not yet wired into PyInstaller configuration; that remains future packaging work.
+`build.ps1` invokes PyInstaller with `run_hjksell.py`, Alembic data, icon/font assets, and PySide6 collection, producing clean ONEDIR output. Onest remains a packaged fallback; Kulag Sha and official Google Fonts Oswald are also packaged for centralized runtime typography.

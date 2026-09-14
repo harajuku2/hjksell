@@ -17,7 +17,13 @@ def rate(value: Decimal) -> Decimal:
     return value.quantize(FOUR_PLACES, rounding=ROUND_HALF_UP)
 
 
-def parse_decimal(value: str, *, field_name: str = "значение", positive: bool = False) -> Decimal:
+def parse_decimal(
+    value: str,
+    *,
+    field_name: str = "значение",
+    positive: bool = False,
+    non_negative: bool = False,
+) -> Decimal:
     """Parse user-entered decimal text, accepting the comma decimal separator."""
 
     text = value.strip().replace(",", ".")
@@ -31,6 +37,8 @@ def parse_decimal(value: str, *, field_name: str = "значение", positive:
         raise ValueError(f"Некорректное {field_name}.")
     if positive and parsed <= 0:
         raise ValueError(f"{field_name.capitalize()} должно быть больше нуля.")
+    if non_negative and parsed < 0:
+        raise ValueError(f"{field_name.capitalize()} не может быть отрицательным.")
     return parsed
 
 

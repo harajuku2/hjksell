@@ -145,7 +145,7 @@ def parse_channel_post(update: dict[str, Any]) -> ParsedChannelPost:
     normalized_caption = re.sub(r"\s*([.,])\s*", r"\1", caption.strip()).replace(",", ".")
     if not _CAPTION_RE.fullmatch(normalized_caption):
         raise ValueError("Цена должна быть числом, например 150 или 150,50.")
-    price = parse_decimal(normalized_caption, field_name="цену PLN", positive=True)
+    price = parse_decimal(normalized_caption, field_name="цену PLN", non_negative=True)
     if price.as_tuple().exponent < -2:
         raise ValueError("Цена может содержать не более двух знаков после запятой.")
     timestamp = message.get("date")

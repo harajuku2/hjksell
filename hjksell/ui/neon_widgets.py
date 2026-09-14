@@ -26,9 +26,9 @@ class GradientLabel(QWidget):
     ) -> None:
         super().__init__(parent)
         self._text = text
+        self._font_family = font_family or self.font().family()
         font = QFont(self.font())
-        if font_family:
-            font.setFamily(font_family)
+        font.setFamily(self._font_family)
         font.setPointSize(29)
         font.setWeight(QFont.Weight.ExtraBold)
         self.setFont(font)
@@ -37,7 +37,7 @@ class GradientLabel(QWidget):
 
     def _apply_brand_font(self) -> None:
         font = QFont(self.font())
-        font.setFamily("Onest")
+        font.setFamily(self._font_family)
         font.setPixelSize(29)
         font.setWeight(QFont.Weight.ExtraBold)
         self.setFont(font)

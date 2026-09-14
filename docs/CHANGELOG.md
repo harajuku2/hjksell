@@ -35,3 +35,10 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 - The resulting EXE was manually tested successfully with existing Items, photos, portfolios, Catalog, Analytics, and user data intact.
 - The current follow-up adds the multi-size `assets/icons/hjksell.ico` application icon to both Qt startup and the existing ONEDIR package.
 - The original icon artwork is preserved as `assets/icons/hjksell-source.webp`; the user manually verified the dragon on the Windows taskbar. Explorer's old icon was confirmed to be Windows icon caching because a renamed copy of the same EXE displayed the new icon immediately.
+
+## Monthly income and free-item support
+
+- Added persisted portfolio/month-scoped `ДРУГИЕ ДОХОДЫ` and `РЕКЛАМА` values alongside monthly expenses.
+- Updated Catalog and Analytics formulas so other income contributes to `ПРОДАЖИ` and net profit, while advertising contributes only to net profit.
+- Allowed zero-cost Items, with undefined X/ROI displayed as `—`, and accepted Telegram caption `0`.
+- Added centralized runtime typography roles with Oswald as the single visible family across Catalog and Analytics; Kulag Sha remains registered and packaged for reversible experimentation, and Onest remains available as fallback.

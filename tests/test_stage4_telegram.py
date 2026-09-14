@@ -64,6 +64,11 @@ def test_channel_post_price_parser_accepts_documented_formats(caption: str) -> N
     assert parsed.purchase_date.isoformat() == "2026-09-11"
 
 
+def test_channel_post_price_parser_accepts_free_item_price() -> None:
+    parsed = parse_channel_post(post(caption="0"))
+    assert parsed.price_pln == "0"
+
+
 def test_parser_rejects_albums_and_posts_without_one_photo() -> None:
     album = post()
     album["channel_post"]["media_group_id"] = "album"
@@ -138,6 +143,22 @@ def test_import_is_atomic_snapshotted_and_duplicate_safe(tmp_path: Path) -> None
         assert item.telegram_channel_id == "-1001"
         assert TelegramRepository(session).offset() == 3
         assert Path(item.photo_path).is_file()
+
+
+def test_telegram_import_creates_free_item(tmp_path: Path) -> None:
+    factory, photos = make_factory(tmp_path)
+    api = FakeApi()
+    importer = TelegramImportService(factory, photos, api)
+    with factory() as session:
+        TelegramRepository(session).bind_channel(1, "-1001", "Purchases")
+        session.commit()
+
+    result = importer.import_update(post(caption="0"))
+    assert result.status == "imported"
+    with factory() as session:
+        item = session.query(Item).one()
+        assert item.purchase_price_pln == 0
+        assert item.cost_byn == 0
 
 
 def test_unknown_channel_is_ignored_and_offset_persisted(tmp_path: Path) -> None:

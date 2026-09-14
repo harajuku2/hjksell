@@ -23,8 +23,8 @@ class ItemService:
         purchase_date: date,
         photo_path: str | None = None,
     ) -> Item:
-        if purchase_price_pln <= 0:
-            raise ValueError("Цена покупки должна быть больше нуля.")
+        if purchase_price_pln < 0:
+            raise ValueError("Цена покупки не может быть отрицательной.")
         exchange_rate = self.settings.current_exchange_rate()
         item = Item(
             portfolio_id=portfolio_id,
@@ -41,7 +41,7 @@ class ItemService:
         self, portfolio_id: int, price_text: str, purchase_date: date, photo_path: str | None = None
     ) -> Item:
         return self.create_item(
-            portfolio_id, parse_decimal(price_text, field_name="цену PLN", positive=True), purchase_date, photo_path
+            portfolio_id, parse_decimal(price_text, field_name="цену PLN", non_negative=True), purchase_date, photo_path
         )
 
     def sell(self, item: Item, sale_price_text: str, sale_date: date | None = None) -> Item:

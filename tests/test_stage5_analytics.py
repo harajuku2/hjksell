@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,8 +13,10 @@ from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.services.analytics import AnalyticsPeriod, AnalyticsService, PeriodPreset
 from hjksell.ui.analytics_window import AnalyticsWindow
+from hjksell.ui.typography import Typography, TypographyRole, load_typography
 from hjksell.ui.main_window import MainWindow
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtGui import QFont, QFontDatabase, QFontMetrics, QRawFont
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 
 
 def make_session() -> Session:
@@ -33,6 +36,90 @@ def item(session, portfolio_id, purchase, *, cost="85.00", sale=None, sold=None)
         sale_price_byn=None if sale is None else Decimal(sale),
         sale_date=sold,
     ))
+
+
+def test_typography_registers_supplied_and_official_font_families() -> None:
+    app = QApplication.instance() or QApplication([])
+    typography = load_typography(lambda relative: Path(relative))
+
+    assert typography.kulag_sha == "KULAG SHA"
+    assert typography.kulag_sha_style == "Regular"
+    assert typography.kulag_sha_outline
+    assert typography.kulag_sha_outline_style
+    assert typography.oswald == "Oswald"
+    assert typography.oswald_style
+    visible_roles = (
+        TypographyRole.DISPLAY,
+        TypographyRole.UI_LABEL,
+        TypographyRole.UI_CONTROL,
+        TypographyRole.METRIC,
+        TypographyRole.INPUT,
+        TypographyRole.HERO_FINANCIAL_VALUE,
+        TypographyRole.PRIMARY_MONEY_VALUE,
+        TypographyRole.METRIC_VALUE,
+        TypographyRole.METRIC_LABEL,
+        TypographyRole.SUPPORTING_TEXT,
+        TypographyRole.INPUT_VALUE,
+        TypographyRole.SECTION_HEADING,
+    )
+    assert {typography.family(role) for role in visible_roles} == {"Oswald"}
+    oswald_font = QFont(typography.oswald)
+    oswald_font.setPixelSize(16)
+    raw_font = QRawFont.fromFont(oswald_font)
+    required_codepoints = (
+        0x041F, 0x0420, 0x0418, 0x0411, 0x042B, 0x041B, 0x042C,
+        0x041E, 0x0414, 0x0410, 0x0416, 0x0421, 0x0415, 0x0422,
+        0x042F, 0x041C, 0x041E, 0x0421, 0x0422, 0x042C,
+        0x0030, 0x0031, 0x0032, 0x0035, 0x0037, 0x0039,
+        0x0020, 0x002E, 0x002B, 0x002D, 0x0025,
+        0x0050, 0x004C, 0x004E, 0x0042, 0x0059, 0x0058, 0x0078,
+    )
+    assert [codepoint for codepoint in set(required_codepoints) if not raw_font.supportsCharacter(codepoint)] == []
+
+
+def test_typography_scale_prioritizes_primary_money_values() -> None:
+    assert Typography.pixel_size(TypographyRole.HERO_FINANCIAL_VALUE) == 31
+    assert Typography.pixel_size(TypographyRole.PRIMARY_MONEY_VALUE) == 26
+    assert Typography.pixel_size(TypographyRole.METRIC_VALUE) == 21
+    assert Typography.pixel_size(TypographyRole.METRIC_LABEL) == 15
+    assert Typography.pixel_size(TypographyRole.SUPPORTING_TEXT) == 13
+    assert Typography.pixel_size(TypographyRole.INPUT_VALUE) == 26
+    assert Typography.pixel_size(TypographyRole.SECTION_HEADING) == 19
+    assert Typography.pixel_size(TypographyRole.HERO_FINANCIAL_VALUE) > Typography.pixel_size(
+        TypographyRole.PRIMARY_MONEY_VALUE
+    )
+    assert Typography.pixel_size(TypographyRole.PRIMARY_MONEY_VALUE) > Typography.pixel_size(
+        TypographyRole.METRIC_VALUE
+    )
+    assert Typography.pixel_size(TypographyRole.METRIC_VALUE) > Typography.pixel_size(
+        TypographyRole.METRIC_LABEL
+    )
+    assert Typography.pixel_size(TypographyRole.INPUT_VALUE) > Typography.pixel_size(
+        TypographyRole.METRIC_VALUE
+    )
+
+
+def test_exchange_rate_editor_fits_representative_value() -> None:
+    app = QApplication.instance() or QApplication([])
+    typography = load_typography(lambda relative: Path(relative))
+    app.setStyleSheet(build_stylesheet(typography))
+    root = QWidget()
+    root.setObjectName("catalogRoot")
+    editor = QLineEdit(root)
+    editor.setObjectName("exchangeRate")
+    editor.setFixedWidth(100)
+    editor.setText("0.8500")
+    editor.show()
+    app.processEvents()
+
+    horizontal_padding = 18
+    frame_width = 1
+    usable_width = editor.width() - horizontal_padding - (frame_width * 2)
+    assert QFontMetrics(editor.font()).horizontalAdvance(editor.text()) <= usable_width
+
+    editor.deleteLater()
+    root.deleteLater()
+    app.processEvents()
 
 
 def test_arbitrary_period_keeps_purchase_and_sale_months_separate():
@@ -75,6 +162,25 @@ def test_expenses_sum_across_months_and_profit_formulas():
         assert metrics.net_profit == Decimal("300.00")
         assert metrics.roi == Decimal("194.12")
         assert metrics.roi_after_expenses == Decimal("176.47")
+
+
+def test_other_income_and_advertising_flow_through_detailed_analytics_only_as_defined():
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        item(session, mine.id, date(2026, 9, 2), cost="400", sale="1000", sold=date(2026, 9, 10))
+        repo = ItemRepository(session)
+        repo.set_monthly_expense(mine.id, 2026, 9, Decimal("100"))
+        repo.set_monthly_other_income(mine.id, 2026, 9, Decimal("150"))
+        repo.set_monthly_advertising(mine.id, 2026, 9, Decimal("50"))
+
+        metrics = AnalyticsService(repo).detailed_metrics(
+            mine.id, AnalyticsPeriod(date(2026, 9, 1), date(2026, 9, 30))
+        )
+        assert metrics.revenue == Decimal("1150.00")
+        assert metrics.realized_profit == Decimal("600.00")
+        assert metrics.net_profit == Decimal("700.00")
+        assert metrics.sold_count == 1
+        assert metrics.average_sale == Decimal("1000.00")
 
 
 def test_zero_sale_is_counted_and_cancelled_sale_is_not():
@@ -178,7 +284,7 @@ def test_analytics_neon_ui_preserves_structure_font_and_rendered_tones() -> None
             ).getRgb()[:3] == (201, 169, 104)
             title = window.findChild(QWidget, "analyticsTitle")
             assert title is not None
-            assert title.font().family() == "Onest"
+            assert title.font().family() == "Oswald"
             assert title.font().pixelSize() == 29
         finally:
             window.close()
@@ -208,3 +314,40 @@ def test_catalogue_monthly_sales_label_uses_sales_terminology() -> None:
         finally:
             widget.deleteLater()
             app.processEvents()
+
+
+def test_catalogue_month_group_exposes_three_monthly_financial_fields() -> None:
+    app = QApplication.instance() or QApplication([])
+    with make_session() as session:
+        mine, _ = PortfolioRepository(session).ensure_default_portfolios()
+        repo = ItemRepository(session)
+        repo.set_monthly_expense(mine.id, 2026, 9, Decimal("10"))
+        repo.set_monthly_other_income(mine.id, 2026, 9, Decimal("20"))
+        repo.set_monthly_advertising(mine.id, 2026, 9, Decimal("30"))
+        factory = sessionmaker(bind=session.bind, class_=Session, expire_on_commit=False)
+        window = MainWindow.__new__(MainWindow)
+        window.session_factory = factory
+        window.current_portfolio_id = mine.id
+        widget = window._month_group(
+            session,
+            2026,
+            9,
+            [],
+            AnalyticsService(repo).monthly_metrics(mine.id, 2026, 9),
+        )
+        try:
+            assert {
+                field.objectName()
+                for field in widget.findChildren(QLineEdit)
+            } == {"monthlyExpense", "monthlyOtherIncome", "monthlyAdvertising"}
+            assert {label.text() for label in widget.findChildren(QLabel)} >= {
+                "РАСХОДЫ", "ДРУГИЕ ДОХОДЫ", "РЕКЛАМА"
+            }
+        finally:
+            widget.deleteLater()
+            app.processEvents()
+
+
+def test_catalogue_months_include_income_only_periods() -> None:
+    periods = MainWindow._months([], [(2025, 12)])
+    assert (2025, 12) in periods

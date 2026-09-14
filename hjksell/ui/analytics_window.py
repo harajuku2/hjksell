@@ -27,14 +27,21 @@ from ..repositories.item_repository import ItemRepository
 from ..repositories.portfolio_repository import PortfolioRepository
 from ..services.analytics import AnalyticsService, PeriodPreset
 from .neon_widgets import GradientLabel
+from .typography import Typography, TypographyRole
 
 
 class MiniLineChart(QWidget):
     """A dependency-free, dark line chart suitable for a compact dashboard."""
 
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        title: str,
+        typography: Typography,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.title = title
+        self.typography = typography
         self.labels: list[str] = []
         self.values: list[float] = []
         self.setMinimumHeight(170)
@@ -49,6 +56,7 @@ class MiniLineChart(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor("#101014"))
+        painter.setFont(self.typography.font(TypographyRole.SECTION_HEADING))
         painter.setPen(QColor("#cfc2df"))
         painter.drawText(14, 22, self.title)
         left, top, right, bottom = 14, 36, self.width() - 12, self.height() - 28
@@ -57,6 +65,7 @@ class MiniLineChart(QWidget):
         painter.setPen(QPen(QColor("#2d2638"), 1))
         painter.drawLine(left, bottom, right, bottom)
         if not self.values:
+            painter.setFont(self.typography.font(TypographyRole.SUPPORTING_TEXT))
             painter.setPen(QColor("#91899c"))
             painter.drawText(left, (top + bottom) // 2, "Нет данных за период")
             return
@@ -111,11 +120,13 @@ class AnalyticsWindow(QMainWindow):
         session_factory: Callable,
         selected_portfolio_id: int | None = None,
         parent: QWidget | None = None,
+        typography: Typography | None = None,
     ) -> None:
         super().__init__(parent)
         self.session_factory = session_factory
         self.portfolios: list[Portfolio] = []
         self.current_portfolio_id = selected_portfolio_id
+        self.typography = typography or Typography.fallback()
         self.setWindowTitle("HJKsell — АНАЛИТИКА")
         self.resize(1080, 760)
         self.setMinimumSize(820, 600)
@@ -133,7 +144,7 @@ class AnalyticsWindow(QMainWindow):
         header = QHBoxLayout(header_surface)
         header.setContentsMargins(2, 0, 2, 2)
         header.setSpacing(10)
-        title = GradientLabel("АНАЛИТИКА", "Onest")
+        title = GradientLabel("АНАЛИТИКА", self.typography.family(TypographyRole.DISPLAY))
         title.setObjectName("analyticsTitle")
         header.addWidget(title)
         header.addSpacing(12)
@@ -238,7 +249,7 @@ class AnalyticsWindow(QMainWindow):
                 card_layout.setContentsMargins(10, 8, 10, 8)
                 card_layout.setSpacing(3)
                 value = QLabel("—")
-                value.setObjectName(value_object_name)
+                value.setObjectName("analyticsHeroValue" if key == "net_profit" else value_object_name)
                 caption = QLabel(label)
                 caption.setObjectName("analyticsMetricLabel")
                 card_layout.addWidget(value)
@@ -249,11 +260,11 @@ class AnalyticsWindow(QMainWindow):
             content_layout.addWidget(section)
         charts = QHBoxLayout()
         charts.setSpacing(10)
-        self.revenue_chart = MiniLineChart("ПРОДАЖИ ПО МЕСЯЦАМ")
+        self.revenue_chart = MiniLineChart("ПРОДАЖИ ПО МЕСЯЦАМ", self.typography)
         self.revenue_chart.setObjectName("analyticsChart")
-        self.profit_chart = MiniLineChart("ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ")
+        self.profit_chart = MiniLineChart("ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ", self.typography)
         self.profit_chart.setObjectName("analyticsChart")
-        self.invested_chart = MiniLineChart("ВЛОЖЕНО ПО МЕСЯЦАМ")
+        self.invested_chart = MiniLineChart("ВЛОЖЕНО ПО МЕСЯЦАМ", self.typography)
         self.invested_chart.setObjectName("analyticsChart")
         charts.addWidget(self.revenue_chart)
         charts.addWidget(self.profit_chart)

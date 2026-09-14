@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from hjksell.database.models import Base, Item, ItemStatus
+from hjksell.database.migrations import _ensure_legacy_monthly_income_columns
 from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.services.analytics import AnalyticsService
@@ -122,6 +123,46 @@ def test_monthly_expenses_and_net_profit(session: Session, portfolios) -> None:
     assert metrics.expenses == Decimal("20.00")
     assert metrics.net_profit == Decimal("145.00")
     assert metrics.roi_after_expenses == Decimal("170.59")
+
+
+def test_monthly_income_is_persisted_by_portfolio_and_period(session: Session, portfolios) -> None:
+    my_portfolio, friend_portfolio = portfolios
+    repository = ItemRepository(session)
+    repository.set_monthly_other_income(my_portfolio.id, 2026, 9, Decimal("150"))
+    repository.set_monthly_advertising(my_portfolio.id, 2026, 9, Decimal("50"))
+    repository.set_monthly_other_income(my_portfolio.id, 2026, 8, Decimal("20"))
+    session.commit()
+
+    assert repository.monthly_income(my_portfolio.id, 2026, 9) == (Decimal("150.00"), Decimal("50.00"))
+    assert repository.monthly_income(my_portfolio.id, 2026, 8) == (Decimal("20.00"), Decimal("0.00"))
+    assert repository.monthly_income(friend_portfolio.id, 2026, 9) == (Decimal("0.00"), Decimal("0.00"))
+
+
+def test_legacy_monthly_expense_table_gets_zero_income_columns() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE monthly_expenses DROP COLUMN other_income_byn")
+        connection.exec_driver_sql("ALTER TABLE monthly_expenses DROP COLUMN advertising_byn")
+    _ensure_legacy_monthly_income_columns(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("monthly_expenses")}
+    assert {"other_income_byn", "advertising_byn"} <= columns
+
+
+def test_monthly_income_formulas_keep_item_metrics_separate(session: Session, portfolios) -> None:
+    my_portfolio, _ = portfolios
+    add_item(session, my_portfolio.id, price="470.5882", rate="0.8500", sale_price="1000", sale_date=date(2026, 9, 10))
+    repository = ItemRepository(session)
+    repository.set_monthly_expense(my_portfolio.id, 2026, 9, Decimal("100"))
+    repository.set_monthly_other_income(my_portfolio.id, 2026, 9, Decimal("150"))
+    repository.set_monthly_advertising(my_portfolio.id, 2026, 9, Decimal("50"))
+
+    metrics = AnalyticsService(repository).monthly_metrics(my_portfolio.id, 2026, 9)
+    assert metrics.revenue == Decimal("1150.00")
+    assert metrics.realized_profit == Decimal("600.00")
+    assert metrics.net_profit == Decimal("700.00")
+    assert metrics.sold_count == 1
+    assert metrics.average_x == Decimal("2.50")
 
 
 def test_portfolios_are_independent(session: Session, portfolios) -> None:

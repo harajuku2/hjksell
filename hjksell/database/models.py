@@ -60,6 +60,8 @@ class MonthlyExpense(Base):
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
     amount_byn: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    other_income_byn: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    advertising_byn: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=False
     )

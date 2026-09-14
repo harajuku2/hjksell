@@ -28,6 +28,8 @@ foreach ($artifact in @(
     --add-data "alembic;alembic" `
     --add-data "assets\icons;assets\icons" `
     --add-data "assets\fonts\onest;assets\fonts\onest" `
+    --add-data "assets\fonts\kulag-sha;assets\fonts\kulag-sha" `
+    --add-data "assets\fonts\oswald;assets\fonts\oswald" `
     --collect-all PySide6 `
     (Join-Path $PSScriptRoot "run_hjksell.py")
 
