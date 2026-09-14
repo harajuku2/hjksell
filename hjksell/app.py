@@ -6,7 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QIcon
 from PySide6.QtWidgets import QApplication
 
 from .database.connection import initialize_database
@@ -14,11 +14,17 @@ from .logging_config import configure_logging
 from .ui.main_window import MainWindow
 
 
+def resource_path(relative_path: str) -> Path:
+    """Resolve a bundled resource in development and PyInstaller modes."""
+
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return base / relative_path
+
+
 def load_catalog_font() -> str | None:
     """Load the bundled Catalog font and return its registered family."""
 
-    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
-    font_path = base / "assets" / "fonts" / "onest" / "Onest[wght].ttf"
+    font_path = resource_path("assets/fonts/onest/Onest[wght].ttf")
     font_id = QFontDatabase.addApplicationFont(str(font_path))
     if font_id < 0:
         logging.getLogger(__name__).warning("Catalog font could not be loaded: %s", font_path)
@@ -497,6 +503,10 @@ def main() -> int:
 
     application = QApplication(sys.argv)
     application.setApplicationName("HJKsell")
+    icon_path = resource_path("assets/icons/hjksell.ico")
+    if not icon_path.is_file():
+        logger.warning("Application icon could not be found: %s", icon_path)
+    application.setWindowIcon(QIcon(str(icon_path)))
     catalog_font = load_catalog_font()
     application.setStyleSheet(build_stylesheet(catalog_font))
 

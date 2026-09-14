@@ -33,3 +33,5 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 - The full suite is 62 passed.
 - The current `build.ps1` change adds the Onest font directory to the existing PyInstaller ONEDIR package.
 - The resulting EXE was manually tested successfully with existing Items, photos, portfolios, Catalog, Analytics, and user data intact.
+- The current follow-up adds the multi-size `assets/icons/hjksell.ico` application icon to both Qt startup and the existing ONEDIR package.
+- The original icon artwork is preserved as `assets/icons/hjksell-source.webp`; the user manually verified the dragon on the Windows taskbar. Explorer's old icon was confirmed to be Windows icon caching because a renamed copy of the same EXE displayed the new icon immediately.

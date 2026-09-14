@@ -24,7 +24,9 @@ foreach ($artifact in @(
     --name HJKsell `
     --distpath (Join-Path $PSScriptRoot "dist") `
     --workpath (Join-Path $PSScriptRoot "build") `
+    --icon (Join-Path $PSScriptRoot "assets\icons\hjksell.ico") `
     --add-data "alembic;alembic" `
+    --add-data "assets\icons;assets\icons" `
     --add-data "assets\fonts\onest;assets\fonts\onest" `
     --collect-all PySide6 `
     (Join-Path $PSScriptRoot "run_hjksell.py")

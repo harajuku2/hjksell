@@ -54,7 +54,7 @@ Before a commit, run `git diff --check`; commit only explicitly approved files.
 
 - Stable release: tag `v1.0.0` at commit `c65bba1`.
 - Development checkpoint: `febdb68 Add post-v1.0 sales and portfolio QoL improvements`.
-- The Neon Graphite Catalog and Analytics work is recorded in checkpoint commit `d8a8e66`; the current packaging change is limited to `build.ps1`.
+- The Neon Graphite Catalog and Analytics work is recorded in checkpoint commit `d8a8e66`; current uncommitted work adds the Windows application icon and its packaging/runtime integration.
 - `SESSION_CHECKPOINT.md` is historical and already exists in checkpoint history; do not modify or stage it automatically.
 
 ## Documentation map
