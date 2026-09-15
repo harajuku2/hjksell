@@ -20,7 +20,7 @@ from ..repositories.settings_repository import SettingsRepository
 from ..repositories.telegram_repository import TelegramRepository
 from .finance import parse_decimal
 from .items import ItemService
-from .photos import PhotoService
+from .photos import PhotoStorage
 
 logger = logging.getLogger(__name__)
 _CAPTION_RE = re.compile(r"^[0-9]+(?:[.,][0-9]{1,2})?$")
@@ -45,7 +45,7 @@ class TelegramApiClient:
             raise ValueError("Введите токен Telegram.")
         self._token = token
         self._api_root = api_root.rstrip("/")
-        self._client = client or httpx.Client(timeout=httpx.Timeout(55.0, connect=10.0))
+        self._client = client or httpx.Client(timeout=httpx.Timeout(55.0, connect=10.0), trust_env=False)
         self._owns_client = client is None
         # Bot API URLs contain the token; never allow transport debug logs to
         # print those URLs to a terminal or application log.
@@ -60,7 +60,16 @@ class TelegramApiClient:
 
     def _call(self, method: str, **params: Any) -> Any:
         response = self._client.get(f"{self._api_root}/bot{self._token}/{method}", params=params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if response.status_code == 401:
+                raise TelegramApiError("Telegram отклонил токен бота.") from exc
+            if response.status_code == 409:
+                raise TelegramApiError(
+                    "Telegram уже используется другим polling-процессом. Закройте desktop или другой Web-сервер."
+                ) from exc
+            raise TelegramApiError(f"Telegram API вернул HTTP {response.status_code}.") from exc
         try:
             payload = response.json()
         except ValueError as exc:
@@ -171,7 +180,7 @@ class TelegramImportService:
     def __init__(
         self,
         session_factory: Callable,
-        photo_service: PhotoService,
+        photo_service: PhotoStorage,
         api: TelegramApiClient,
         portfolio_id: int = 1,
     ) -> None:
@@ -291,6 +300,12 @@ def _safe_error(exc: Exception) -> str:
 
     if isinstance(exc, TelegramApiError):
         return str(exc)[:300]
+    if isinstance(exc, httpx.ConnectError):
+        return "Не удалось подключиться к Telegram API. Проверьте интернет-соединение или настройки сети."
+    if isinstance(exc, httpx.NetworkError):
+        return "Сетевое соединение с Telegram API прервано. Повторяю проверку автоматически."
+    if isinstance(exc, httpx.TimeoutException):
+        return "Telegram API не ответил вовремя. Проверьте интернет-соединение."
     return f"Ошибка импорта: {type(exc).__name__}."
 
 

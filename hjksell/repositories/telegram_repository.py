@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -48,6 +48,15 @@ class TelegramRepository:
         if not token:
             raise ValueError("Введите токен Telegram.")
         self.config(int(portfolio_id)).token = token
+        self.session.flush()
+
+    def clear_config(self, portfolio_id: int) -> None:
+        """Remove the bot binding and polling cursor for one portfolio."""
+
+        config = self.config(portfolio_id)
+        config.token = None
+        config.update_offset = None
+        self.session.execute(delete(TelegramChannel).where(TelegramChannel.portfolio_id == portfolio_id))
         self.session.flush()
 
     def channels(self) -> list[TelegramChannel]:

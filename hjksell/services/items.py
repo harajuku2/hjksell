@@ -54,3 +54,41 @@ class ItemService:
             raise ValueError("Цена продажи не может быть отрицательной.")
         effective_sale_date = item.sale_date or sale_date or date.today()
         return self.repository.sale(item, sale_price.quantize(Decimal("0.01")), effective_sale_date)
+
+    def update_purchase_details(
+        self,
+        item: Item,
+        *,
+        purchase_price_text: str | None = None,
+        purchase_date: date | None = None,
+        exchange_rate_text: str | None = None,
+    ) -> Item:
+        if item.deleted_at is not None:
+            raise ValueError("Удалённую вещь нельзя изменить.")
+        if purchase_price_text is None and purchase_date is None and exchange_rate_text is None:
+            raise ValueError("Не переданы данные для изменения вещи.")
+        purchase_price = (
+            item.purchase_price_pln
+            if purchase_price_text is None
+            else parse_decimal(purchase_price_text, field_name="цену покупки", non_negative=True)
+        ).quantize(Decimal("0.01"))
+        effective_date = purchase_date or item.purchase_date
+        exchange_rate = (
+            item.exchange_rate
+            if exchange_rate_text is None
+            else rate(parse_decimal(exchange_rate_text, field_name="курс", positive=True))
+        )
+        return self.repository.update_purchase_details(
+            item,
+            purchase_price,
+            effective_date,
+            exchange_rate,
+            calculate_cost(purchase_price, exchange_rate),
+        )
+
+    def update_sale_date(self, item: Item, sale_date: date) -> Item:
+        if item.deleted_at is not None:
+            raise ValueError("Удалённую вещь нельзя изменить.")
+        if item.sale_price_byn is None:
+            raise ValueError("У вещи нет завершённой продажи.")
+        return self.repository.update_sale_date(item, sale_date)

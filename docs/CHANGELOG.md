@@ -47,3 +47,17 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 
 - Added a continuous atmospheric graphite backplate, translucent Catalog workspace, painted Item information islands, rounded photo wells, material-style controls, and a restrained violet scrollbar.
 - Removed Catalog portfolio/filter drop-shadow effects whose rectangular widget bounds created visible glow boundaries.
+
+## Local web skeleton Phase 1
+
+- Added an isolated FastAPI backend over the existing repositories, ItemService, AnalyticsService, finance helpers, and shared Catalog filter semantics.
+- Added a neutral no-build Catalog frontend with portfolio switching, historical FX-safe Item creation, exact sale filters, month-owned financial values, complete month collapse, sales/cancellation, development photos, and soft deletion.
+- Added Web-owned Telegram polling and configuration over the shared importer, with portfolio-scoped status, channel binding, duplicate-safe imports, and live Catalog refresh.
+- Protected unsaved Catalog and Telegram field drafts from live refresh replacement; added per-portfolio Telegram disconnect/clear and removed the redundant manual refresh button.
+- Made Web Telegram messages state-based, cleared stale diagnostics on reconfiguration, removed the unused manual polling control, and preserved each portfolio's collapsed-month state through live refresh.
+- Preserved unsaved exchange-rate edits and open Item action menus through live refresh; menus now close only after an explicit click outside the menu.
+- Reordered the Web Catalog to match the desktop information flow: header controls, month metrics, month values, and full-width photo-first Item rows with a right-side action menu; added responsive mobile stacking.
+- Made the current-month summary widget visible only while its month is collapsed, avoiding duplicate KPIs when the month is open.
+- Added monthly invested amount as the first metric in the collapsed summary widget, with a full-width profit row on mobile.
+- Kept newly added Web items first within their purchase date and raised the open item menu above following rows; reduced menu spacing for compact desktop and mobile use.
+- Kept web SQLite and media under ignored `.web-dev/`; the web runtime does not resolve or access `%LOCALAPPDATA%\HJKsell`.

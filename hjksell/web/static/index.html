@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HJKsell Web</title>
+  <link rel="stylesheet" href="/styles.css?v=menu-order-3">
+</head>
+<body>
+  <header class="page-header">
+    <h1>HJKsell Catalog</h1>
+    <section class="toolbar" aria-label="Настройки каталога">
+      <div class="portfolio-control">
+        <label for="portfolioSelect">ПОРТФЕЛЬ</label>
+        <div class="portfolio-select-row">
+          <select id="portfolioSelect"></select>
+          <button id="renamePortfolioButton" class="icon-button" type="button" title="Изменить название портфеля" aria-label="Изменить название портфеля">✎</button>
+        </div>
+        <form id="renamePortfolioForm" class="rename-form" hidden>
+          <input id="portfolioNameInput" name="name" maxlength="24" required aria-label="Новое название портфеля">
+          <button type="submit">Сохранить</button>
+          <button id="cancelRenameButton" type="button">Отмена</button>
+        </form>
+      </div>
+      <form id="rateForm" class="rate-form">
+        <span class="rate-label">PLN → BYN</span>
+        <input id="rateInput" name="rate" inputmode="decimal" required aria-label="Курс PLN к BYN">
+        <button type="submit">Сохранить курс</button>
+      </form>
+    </section>
+    <div class="header-actions">
+      <button id="addItemButton" class="primary-action" type="button" aria-expanded="false" aria-controls="newItemPanel">Добавить вещь</button>
+      <button id="telegramButton" type="button" aria-expanded="false" aria-controls="telegramPanel">Telegram</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="catalog-controls">
+      <nav id="filters" class="filters" aria-label="Фильтры">
+        <button type="button" data-filter="all" aria-pressed="true">ВСЕ</button>
+        <button type="button" data-filter="stock" aria-pressed="false">В НАЛИЧИИ</button>
+        <button type="button" data-filter="sold" aria-pressed="false">ПРОДАНО</button>
+        <button type="button" data-filter="no_revenue" aria-pressed="false">БЕЗ ВЫРУЧКИ</button>
+      </nav>
+      <section id="collapsedSummary" class="collapsed-summary" aria-label="Краткая статистика текущего месяца"></section>
+    </div>
+
+    <section id="telegramPanel" class="telegram-panel" aria-label="Настройки Telegram" hidden>
+      <div class="panel-heading">
+        <h2>Telegram</h2>
+        <span id="telegramStatus" class="telegram-status">Не настроен</span>
+      </div>
+      <form id="telegramForm">
+        <label>Bot Token
+          <input id="telegramToken" name="token" type="password" autocomplete="off" placeholder="введите токен бота">
+        </label>
+        <label>ID канала
+          <input id="telegramChannel" name="channel_id" inputmode="numeric" placeholder="например, -1001234567890">
+        </label>
+        <button id="telegramValidateButton" type="button">Проверить токен</button>
+        <button class="primary-action" type="submit">Сохранить и запустить</button>
+        <button id="telegramClearButton" class="danger" type="button">Отключить и очистить</button>
+      </form>
+      <p id="telegramHint" class="telegram-hint">Публикация должна содержать одно фото и цену в PLN.</p>
+      <div id="discoveredChannels" class="discovered-channels" hidden></div>
+    </section>
+
+    <section id="newItemPanel" class="new-item" hidden>
+      <h2>Добавить вещь</h2>
+      <form id="itemForm">
+        <label>Цена покупки, PLN
+          <input name="purchase_price_pln" inputmode="decimal" required>
+        </label>
+        <label>Дата покупки
+          <input name="purchase_date" type="date" required>
+        </label>
+        <label>Фото для dev-базы
+          <span class="file-picker">
+            <span data-file-name>Добавить фото</span>
+            <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp">
+          </span>
+        </label>
+        <button type="submit">Добавить</button>
+      </form>
+    </section>
+
+    <p id="message" role="status" aria-live="polite"></p>
+    <section id="catalog" aria-label="Каталог по месяцам"></section>
+  </main>
+
+  <script src="/app.js?v=menu-order-3" defer></script>
+</body>
+</html>

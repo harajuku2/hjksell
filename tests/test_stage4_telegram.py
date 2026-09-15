@@ -22,6 +22,7 @@ from hjksell.repositories.telegram_repository import TelegramRepository
 from hjksell.services.photos import PhotoService
 from hjksell.services.telegram import (
     TelegramApiClient,
+    TelegramApiError,
     TelegramImportService,
     TelegramQtWorker,
     TelegramWorker,
@@ -278,6 +279,19 @@ def test_bot_api_uses_get_me_and_get_updates_without_send_methods() -> None:
     assert client.get_updates(offset=9) == []
     assert [request.url.path.split("/")[-1] for request in requests] == ["getMe", "getUpdates"]
     assert "sendMessage" not in dir(client)
+
+
+def test_bot_api_explains_http_conflicts_without_exposing_token() -> None:
+    client = TelegramApiClient(
+        "123:secret",
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(409, json={"ok": False}))
+        ),
+    )
+    with pytest.raises(TelegramApiError) as error:
+        client.get_updates()
+    assert "другим polling-процессом" in str(error.value)
+    assert "secret" not in str(error.value)
 
 
 def test_poll_worker_prevents_overlapping_requests() -> None:

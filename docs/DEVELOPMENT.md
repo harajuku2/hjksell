@@ -12,6 +12,12 @@ Run tests:
 
 `.\.venv\Scripts\python.exe -m pytest -q`
 
+Run the isolated local web skeleton:
+
+`.\.venv\Scripts\python.exe -m hjksell.web`
+
+Then open `http://127.0.0.1:8765`. The backend and static frontend share one localhost origin, so no CORS configuration or Node build is required. Web development data is created only at `C:\HJKsell\.web-dev\data\hjk_sell_web_dev.db`; development photos remain under the same ignored `.web-dev` root. Web Telegram settings are entered in the Telegram panel; polling is owned by the Web backend and never uses the desktop database. The panel supports token validation, discovered-channel selection, and per-portfolio `Отключить и очистить`; this clears Telegram configuration and polling state but leaves catalogue data intact. Live refresh pauses while a Catalog or Telegram field has unsaved input or an Item action menu is open, so background polling cannot replace the user's draft, focus, or menu. Exchange-rate edits remain local until explicitly saved, and an open Item menu closes only on an explicit click outside it. Expanded/collapsed months are preserved independently for each portfolio.
+
 Before committing, run:
 
 `git diff --check`
@@ -26,7 +32,7 @@ For regressions use: reproduce → inspect traceback/logs → prove root cause �
 
 ## Test/data safety
 
-Tests should use temporary directories or in-memory SQLite. Production database, photos, logs, Telegram settings, and imports under `%LOCALAPPDATA%\HJKsell` are out of scope. Never print token values.
+Tests should use temporary directories or in-memory SQLite. Web API tests inject their own temporary `AppPaths`. Production database, photos, logs, Telegram settings, and imports under `%LOCALAPPDATA%\HJKsell` are out of scope. Never print token values.
 
 ## Current checkpoint state
 

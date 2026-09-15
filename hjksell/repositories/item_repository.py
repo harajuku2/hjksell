@@ -163,6 +163,22 @@ class ItemRepository:
         self.session.flush()
         return item
 
+    def update_purchase_details(
+        self,
+        item: Item,
+        purchase_price_pln: Decimal,
+        purchase_date: date,
+        exchange_rate: Decimal,
+        cost_byn: Decimal,
+    ) -> Item:
+        item.purchase_price_pln = purchase_price_pln
+        item.purchase_date = purchase_date
+        item.exchange_rate = exchange_rate
+        item.cost_byn = cost_byn
+        item.updated_at = datetime.now()
+        self.session.flush()
+        return item
+
     def sale(self, item: Item, sale_price_byn: Decimal, sale_date: date) -> Item:
         item.sale_price_byn = sale_price_byn
         item.sale_date = sale_date
@@ -175,6 +191,12 @@ class ItemRepository:
         item.sale_price_byn = None
         item.sale_date = None
         item.status = ItemStatus.IN_STOCK.value
+        item.updated_at = datetime.now()
+        self.session.flush()
+        return item
+
+    def update_sale_date(self, item: Item, sale_date: date) -> Item:
+        item.sale_date = sale_date
         item.updated_at = datetime.now()
         self.session.flush()
         return item

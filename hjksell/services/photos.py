@@ -5,8 +5,16 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
+from typing import Protocol
 
 from ..config import AppPaths, ensure_app_directories
+
+
+class PhotoStorage(Protocol):
+    """Storage boundary consumed by manual and Telegram item creation."""
+
+    def save_photo_bytes(self, content: bytes, suffix: str = ".jpg") -> str:
+        ...
 
 
 class PhotoService:

@@ -12,6 +12,8 @@
 
 The repository itself must not become the user-data directory.
 
+The optional local web application runs independently from the desktop application. Its app factory always receives an explicit `AppPaths`; the default web runtime resolves only under repository-local `.web-dev/`, with SQLite at `.web-dev/data/hjk_sell_web_dev.db` and development media under `.web-dev/data/photos/`. It does not call `get_app_paths()` or use desktop Telegram state. `WebTelegramManager` owns Web polling through the shared Telegram importer and can be pointed at another `AppPaths` for deployment.
+
 ## Layers
 
 The Catalog and Analytics windows call services and repositories rather than issuing arbitrary SQL. SQLAlchemy models live in `hjksell/database/models.py`; repositories encapsulate persistence; services contain use cases and Decimal calculations; UI owns Qt presentation and user interaction.
@@ -28,6 +30,11 @@ Important modules:
 - `hjksell/repositories/*`: database access.
 - `hjksell/services/telegram.py` and `repositories/telegram_repository.py`: Bot API, import, diagnostics, portfolio-specific state.
 - `hjksell/services/photos.py`: local photo copying.
+- `hjksell/services/catalog.py`: Catalog filter semantics shared by desktop and web adapters.
+- `hjksell/web/app.py`: local FastAPI routes and isolated runtime wiring.
+- `hjksell/web/telegram.py`: Web lifecycle orchestration for one cooperative Telegram worker per configured portfolio.
+- `hjksell/web/catalog.py`: JSON response assembly over the existing repositories, `AnalyticsService`, and Decimal finance helpers.
+- `hjksell/web/static/`: neutral no-build Catalog frontend for the first web phase.
 
 ## Domain flows
 
@@ -58,9 +65,9 @@ There are two independent portfolio records. `portfolio_id` is identity for Item
 
 ### Telegram
 
-Each portfolio has its own token, channel binding, update offset, imports, API client, importer, and polling worker. Posts are one photo plus a numeric PLN caption; accepted forms include comma or dot decimals. Photos are downloaded locally. Polling is automatic at about 50 seconds and can also be triggered manually.
+Each portfolio has its own token, channel binding, update offset, imports, API client, importer, and polling worker. Posts are one photo plus a numeric PLN caption; accepted forms include comma or dot decimals. Photos are downloaded locally. Polling is automatic at about 50 seconds; desktop also supports a manual poll action. Web settings can validate a token, select a discovered channel, and clear the token, binding, and offset for one portfolio without deleting catalogue Items or import history. Reconfiguration clears old Web diagnostics so a previous unbound-channel message cannot be displayed as the result of a successful binding.
 
-`TelegramQtWorker.diagnostics` is a typed signal carrying portfolio ID and payload, connected directly to a GUI Qt Slot. Shutdown is cooperative: stop flags/events, API close/interruption, thread quit, and wait. Never restore a global token, log credentials, insert a Python lambda between worker and GUI, or use `QThread.terminate()` as normal shutdown.
+`TelegramQtWorker.diagnostics` is a typed signal carrying portfolio ID and payload, connected directly to a GUI Qt Slot. The Web runtime uses `WebTelegramManager` and the shared thread-friendly `TelegramWorker`; it does not create a second importer or finance implementation. Shutdown is cooperative: stop flags/events, API close/interruption, thread quit, and wait. Never restore a global token, log credentials, insert a Python lambda between worker and GUI, or use `QThread.terminate()` as normal shutdown.
 
 ### Database and migrations
 

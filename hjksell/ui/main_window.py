@@ -43,6 +43,7 @@ from ..repositories.item_repository import ItemRepository
 from ..repositories.portfolio_repository import PortfolioRepository
 from ..repositories.settings_repository import SettingsRepository
 from ..services.analytics import AnalyticsService, MonthlyMetrics
+from ..services.catalog import item_matches_catalog_filter
 from ..services.finance import calculate_cost, item_metrics, parse_decimal
 from ..services.items import ItemService
 from ..services.photos import PhotoService
@@ -59,18 +60,6 @@ from .neon_widgets import AmbientHeader, CatalogBackdrop, GradientLabel, PhotoSu
 from .typography import Typography, TypographyRole
 
 logger = logging.getLogger(__name__)
-
-
-def item_matches_catalog_filter(item: Item, filter_key: str) -> bool:
-    """Return whether an active item belongs to a catalogue filter."""
-    sale_price = item.sale_price_byn
-    if filter_key == "stock":
-        return sale_price is None
-    if filter_key == "sold":
-        return sale_price is not None and sale_price > 0
-    if filter_key == "no_revenue":
-        return sale_price == 0
-    return True
 
 
 def catalog_metric_tone(value: Decimal | None, neutral_at: Decimal) -> str:
