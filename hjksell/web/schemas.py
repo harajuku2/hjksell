@@ -20,6 +20,10 @@ class PortfolioRename(StrictModel):
     name: str
 
 
+class PortfolioCreate(StrictModel):
+    name: str
+
+
 class TelegramConfigUpdate(StrictModel):
     portfolio_id: int
     token: str | None = None

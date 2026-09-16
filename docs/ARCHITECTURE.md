@@ -34,7 +34,7 @@ Important modules:
 - `hjksell/web/app.py`: local FastAPI routes and isolated runtime wiring.
 - `hjksell/web/telegram.py`: Web lifecycle orchestration for one cooperative Telegram worker per configured portfolio.
 - `hjksell/web/catalog.py`: JSON response assembly over the existing repositories, `AnalyticsService`, and Decimal finance helpers.
-- `hjksell/web/static/`: neutral no-build Catalog frontend for the first web phase.
+- `hjksell/web/static/`: no-build responsive Catalog frontend. It uses locally served Onest and Oswald font assets, while visual state remains a presentation concern separate from the shared service and repository logic.
 
 ## Domain flows
 
@@ -61,7 +61,7 @@ Filters are `ВСЕ`, `В НАЛИЧИИ`, `ПРОДАНО`, and `БЕЗ ВЫР�
 
 ### Portfolios
 
-There are two independent portfolio records. `portfolio_id` is identity for Items, expenses, Analytics, Telegram config, channels, offsets, and imports. `Portfolio.name` is editable display text and must not be used to rediscover identity or reset renamed portfolios.
+Portfolios are independent persisted records; database initialization seeds two defaults, while the Web UI can create additional empty portfolios. `portfolio_id` is identity for Items, expenses, Analytics, Telegram config, channels, offsets, and imports. `Portfolio.name` is editable display text and must not be used to rediscover identity or reset renamed portfolios.
 
 ### Telegram
 
@@ -75,7 +75,7 @@ The current SQLAlchemy model includes portfolios, items, monthly expenses/income
 
 ## Analytics
 
-Analytics is a separate window. Its approved groups are `РЕЗУЛЬТАТ`, `ЭФФЕКТИВНОСТЬ`, `ЗАКУПКИ И СКЛАД`, and `СРЕДНИЕ ПОКАЗАТЕЛИ`; graph titles include `ПРОДАЖИ ПО МЕСЯЦАМ`, `ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ`, and `ВЛОЖЕНО ПО МЕСЯЦАМ`. Do not redesign or repaint it through broad Catalog selectors.
+Desktop Analytics is a separate window; Web Analytics is a dedicated view in the same local application. Both use `AnalyticsService` and the approved groups `РЕЗУЛЬТАТ`, `ЭФФЕКТИВНОСТЬ`, `ЗАКУПКИ И СКЛАД`, and `СРЕДНИЕ ПОКАЗАТЕЛИ`; graph titles include `ПРОДАЖИ ПО МЕСЯЦАМ`, `ЧИСТАЯ ПРИБЫЛЬ ПО МЕСЯЦАМ`, and `ВЛОЖЕНО ПО МЕСЯЦАМ`. Do not duplicate metric formulas in presentation code.
 
 ## Packaging
 

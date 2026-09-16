@@ -50,6 +50,14 @@ class WebTelegramManager:
             for poller in pollers:
                 poller.thread.join(timeout=3)
 
+    def remove(self, portfolio_id: int) -> None:
+        """Stop and forget the worker before its portfolio is deleted."""
+
+        with self._lifecycle_lock:
+            with self._lock:
+                self._last_diagnostics.pop(portfolio_id, None)
+            self._stop_portfolio(portfolio_id)
+
     def reconfigure(self, portfolio_id: int) -> None:
         with self._lifecycle_lock:
             with self._lock:

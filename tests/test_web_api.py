@@ -87,6 +87,94 @@ def test_portfolio_can_be_renamed_without_changing_identity(web_client) -> None:
     assert too_long.status_code == 422
 
 
+def test_portfolio_can_be_created_as_an_independent_empty_workspace(web_client) -> None:
+    client, _app, _paths = web_client
+    existing_id = portfolio_ids(client)[0]
+    create_item(client, existing_id, "100")
+
+    response = client.post("/api/portfolios", json={"name": "Новый магазин"})
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["id"] not in portfolio_ids(client)[:2]
+    assert created["name"] == "Новый магазин"
+
+    month = selected_month(client, created["id"])
+    assert month["items"] == []
+    assert month["metrics"]["purchased_count"] == 0
+    telegram = client.get("/api/telegram/status", params={"portfolio_id": created["id"]})
+    assert telegram.status_code == 200
+    assert telegram.json()["configured"] is False
+    assert telegram.json()["channel_id"] is None
+
+    duplicate = client.post("/api/portfolios", json={"name": "новый магазин"})
+    assert duplicate.status_code == 422
+
+
+def test_portfolio_can_be_deleted_with_its_scoped_data(web_client) -> None:
+    client, _app, _paths = web_client
+    response = client.post("/api/portfolios", json={"name": "Удаляемый магазин"})
+    assert response.status_code == 201
+    portfolio_id = response.json()["id"]
+    create_item(client, portfolio_id, "100")
+    values = client.put(
+        "/api/monthly-values",
+        json={
+            "portfolio_id": portfolio_id,
+            "year": 2026,
+            "month": 9,
+            "expenses": "25",
+            "other_income": "0",
+            "advertising": "0",
+        },
+    )
+    assert values.status_code == 200
+
+    deleted = client.delete(f"/api/portfolios/{portfolio_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"id": portfolio_id, "name": "Удаляемый магазин"}
+    assert portfolio_id not in portfolio_ids(client)
+    assert client.get("/api/catalog", params={"portfolio_id": portfolio_id}).status_code == 404
+
+    protected = client.delete(f"/api/portfolios/{portfolio_ids(client)[0]}")
+    assert protected.status_code == 422
+
+
+def test_analytics_endpoint_uses_portfolio_scoped_core_metrics(web_client) -> None:
+    client, _app, _paths = web_client
+    portfolio_id, other_id = portfolio_ids(client)
+    assert client.put("/api/settings/exchange-rate", json={"rate": "1.0000"}).status_code == 200
+    item = create_item(client, portfolio_id, "100")
+    sale(client, portfolio_id, item["id"], "200")
+    values = client.put(
+        "/api/monthly-values",
+        json={
+            "portfolio_id": portfolio_id,
+            "year": 2026,
+            "month": 9,
+            "expenses": "25",
+            "other_income": "10",
+            "advertising": "0",
+        },
+    )
+    assert values.status_code == 200
+
+    response = client.get(
+        "/api/analytics",
+        params={"portfolio_id": portfolio_id, "period": "current_month"},
+    )
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["period"] == {"start": "2026-09-01", "end": "2026-09-30"}
+    assert report["metrics"]["revenue"] == "210.00"
+    assert report["metrics"]["realized_profit"] == "100.00"
+    assert report["metrics"]["net_profit"] == "85.00"
+    assert report["metrics"]["sold_count"] == 1
+
+    other = client.get("/api/analytics", params={"portfolio_id": other_id}).json()
+    assert other["metrics"]["revenue"] == "0.00"
+    assert other["metrics"]["sold_count"] == 0
+
+
 def test_web_telegram_config_is_portfolio_scoped_and_hides_token(web_client, monkeypatch) -> None:
     client, app, _paths = web_client
     portfolio_id = portfolio_ids(client)[0]
@@ -360,6 +448,23 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert "group.items.map(itemHtml)" in script
     assert 'data-action="menu"' in script
     assert "portfolioNameInput" in script
+    assert 'id="portfolioSelect"' in page.text
+    assert 'id="createPortfolioButton"' in page.text
+    assert 'id="deletePortfolioButton"' in page.text
+    assert 'id="analyticsButton"' in page.text
+    assert 'id="analyticsView"' in page.text
+    assert 'id="portfolioPickerButton"' in page.text
+    assert 'id="analyticsPickerButton"' in page.text
+    assert "analyticsGroups" in script
+    assert "ПРИБЫЛЬ ДО РАСХОДОВ" in script
+    assert "lastAnalyticsFingerprint" in script
+    assert "renderGlassSelect" in script
+    assert "surface-reveal" in client.get("/styles.css").text
+    assert "catalog-dragon-reference-v3.png" in client.get("/styles.css").text
+    assert "lastCatalogFingerprint" in script
+    assert 'id="photoViewer"' in page.text
+    assert 'data-action="view-photo"' in script
+    assert "openPhotoViewer" in script
     assert "saleDrafts" in script
     assert "catalogIsBeingEdited" in script
     assert "telegramChannelDirty" in script
@@ -373,6 +478,9 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert "updateCollapsedSummaryVisibility" in script
     assert "collapsedSummary.hidden = month.open" in script
     assert "data-action=\"edit-item-field\"" in script
+    assert "function metricClass" in script
+    assert "status-${item.sale_state}" in script
+    assert "УШЛА НА БЛАГОЕ ДЕЛО" in script
     assert "/sale-date" in script
     assert "file-picker" in page.text
     assert "Выберите файл" not in page.text
@@ -381,3 +489,11 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert "telegramPollButton" not in script
     assert "refreshButton" not in client.get("/").text
     assert "Проверить сейчас" not in client.get("/").text
+
+
+def test_web_fonts_are_served_with_a_font_mime_type(web_client) -> None:
+    client, _app, _paths = web_client
+    response = client.get("/fonts/onest/Onest%5Bwght%5D.ttf")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("font/ttf")
+    assert len(response.content) > 100_000

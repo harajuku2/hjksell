@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..database.models import Portfolio
+from ..database.models import Item, MonthlyExpense, Portfolio, TelegramChannel, TelegramConfig, TelegramImport
 
 
 class PortfolioRepository:
@@ -30,7 +30,21 @@ class PortfolioRepository:
     def list_all(self) -> list[Portfolio]:
         return list(self.session.scalars(select(Portfolio).order_by(Portfolio.id)))
 
+    def create(self, display_name: str) -> Portfolio:
+        portfolio = Portfolio(name=display_name)
+        self.session.add(portfolio)
+        self.session.flush()
+        return portfolio
+
     def rename(self, portfolio: Portfolio, display_name: str) -> Portfolio:
         portfolio.name = display_name
         self.session.flush()
         return portfolio
+
+    def delete(self, portfolio: Portfolio) -> None:
+        """Delete a portfolio and its portfolio-scoped records."""
+
+        for model in (TelegramImport, TelegramChannel, TelegramConfig, MonthlyExpense, Item):
+            self.session.execute(delete(model).where(model.portfolio_id == portfolio.id))
+        self.session.delete(portfolio)
+        self.session.flush()

@@ -6,7 +6,8 @@ const state = {
   telegramChannelDirty: false,
   rateDraft: null,
   rateDirty: false,
-  openItemMenuId: null
+  openItemMenuId: null,
+  view: "catalog"
 };
 const saleDrafts = new Map();
 const monthlyDrafts = new Map();
@@ -18,9 +19,12 @@ const monthNames = [
 ];
 
 const portfolioSelect = document.querySelector("#portfolioSelect");
+const photoViewer = document.querySelector("#photoViewer");
+const photoViewerImage = document.querySelector("#photoViewerImage");
 const rateInput = document.querySelector("#rateInput");
 const message = document.querySelector("#message");
 const catalogRoot = document.querySelector("#catalog");
+const filters = document.querySelector("#filters");
 const collapsedSummary = document.querySelector("#collapsedSummary");
 const addItemButton = document.querySelector("#addItemButton");
 const newItemPanel = document.querySelector("#newItemPanel");
@@ -35,6 +39,24 @@ const discoveredChannels = document.querySelector("#discoveredChannels");
 const renamePortfolioButton = document.querySelector("#renamePortfolioButton");
 const renamePortfolioForm = document.querySelector("#renamePortfolioForm");
 const portfolioNameInput = document.querySelector("#portfolioNameInput");
+const createPortfolioButton = document.querySelector("#createPortfolioButton");
+const createPortfolioForm = document.querySelector("#createPortfolioForm");
+const newPortfolioNameInput = document.querySelector("#newPortfolioNameInput");
+const deletePortfolioButton = document.querySelector("#deletePortfolioButton");
+const analyticsButton = document.querySelector("#analyticsButton");
+const catalogView = document.querySelector("#catalogView");
+const analyticsView = document.querySelector("#analyticsView");
+const analyticsPeriod = document.querySelector("#analyticsPeriod");
+const analyticsPeriodRange = document.querySelector("#analyticsPeriodRange");
+const analyticsSections = document.querySelector("#analyticsSections");
+const portfolioPicker = document.querySelector("#portfolioPicker");
+const portfolioPickerButton = document.querySelector("#portfolioPickerButton");
+const portfolioPickerLabel = document.querySelector("#portfolioPickerLabel");
+const portfolioPickerMenu = document.querySelector("#portfolioPickerMenu");
+const analyticsPicker = document.querySelector("#analyticsPicker");
+const analyticsPickerButton = document.querySelector("#analyticsPickerButton");
+const analyticsPickerLabel = document.querySelector("#analyticsPickerLabel");
+const analyticsPickerMenu = document.querySelector("#analyticsPickerMenu");
 
 function escapeHtml(value) {
   return String(value)
@@ -74,6 +96,60 @@ function setMessage(text = "") {
 
 function display(value, suffix = "") {
   return value === null || value === undefined ? "—" : `${value}${suffix}`;
+}
+
+function animateVisibility(element, show, onClosed = null) {
+  if (show) {
+    element.hidden = false;
+    element.classList.remove("surface-exit", "surface-enter");
+    void element.offsetWidth;
+    element.classList.add("surface-enter");
+    return;
+  }
+  if (element.hidden || element.classList.contains("surface-exit")) return;
+  element.classList.remove("surface-enter");
+  element.classList.add("surface-exit");
+  const finishExit = (event) => {
+    if (event.target !== element) return;
+    element.removeEventListener("animationend", finishExit);
+    element.hidden = true;
+    element.classList.remove("surface-exit");
+    onClosed?.();
+  };
+  element.addEventListener("animationend", finishExit);
+}
+
+function closeGlassSelects() {
+  [
+    [portfolioPickerButton, portfolioPickerMenu],
+    [analyticsPickerButton, analyticsPickerMenu]
+  ].forEach(([button, menu]) => {
+    button.setAttribute("aria-expanded", "false");
+    animateVisibility(menu, false);
+  });
+}
+
+function renderGlassSelect(select, label, menu) {
+  const selected = select.selectedOptions[0];
+  label.textContent = selected?.textContent || "Выберите";
+  menu.innerHTML = [...select.options].map((option) => `
+    <button type="button" role="option" data-value="${escapeHtml(option.value)}" aria-selected="${option.selected}">
+      ${escapeHtml(option.textContent)}
+    </button>`).join("");
+}
+
+function toggleGlassSelect(button, menu) {
+  const isOpening = menu.hidden || menu.classList.contains("surface-exit");
+  closeGlassSelects();
+  animateVisibility(menu, isOpening);
+  button.setAttribute("aria-expanded", String(isOpening));
+}
+
+function togglePanel(panel, button) {
+  const isOpening = panel.hidden || panel.classList.contains("surface-exit");
+  animateVisibility(panel, isOpening);
+  button.setAttribute("aria-expanded", String(isOpening));
+  return isOpening;
 }
 
 function catalogIsBeingEdited() {
@@ -126,29 +202,139 @@ function updateCollapsedSummaryVisibility(group) {
   collapsedSummary.hidden = isOpen;
 }
 
+function updateFilterIndicator() {
+  const buttons = [...filters.querySelectorAll("button[data-filter]")];
+  const activeIndex = buttons.findIndex((button) => button.dataset.filter === state.filter);
+  filters.style.setProperty("--filter-index", String(Math.max(activeIndex, 0)));
+}
+
+function openPhotoViewer(photoUrl) {
+  photoViewerImage.src = photoUrl;
+  photoViewer.showModal();
+}
+
+function metricClass(value) {
+  if (value === null || value === undefined || value === "" || value === "—") return "";
+  const numeric = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(numeric) || numeric === 0) return "";
+  return numeric < 0 ? "metric-negative" : "metric-positive";
+}
+
+const analyticsGroups = [
+  {
+    title: "РЕЗУЛЬТАТ",
+    className: "analytics-result",
+    metrics: [
+      ["revenue", "ПРОДАЖИ", " BYN"],
+      ["realized_profit", "ПРИБЫЛЬ ДО РАСХОДОВ", " BYN"],
+      ["net_profit", "ЧИСТАЯ ПРИБЫЛЬ", " BYN"],
+      ["expenses", "РАСХОДЫ", " BYN"],
+      ["sold_count", "ПРОДАНО", ""]
+    ]
+  },
+  {
+    title: "ЭФФЕКТИВНОСТЬ",
+    metrics: [
+      ["roi", "ROI", "%"],
+      ["roi_after_expenses", "ROI ПОСЛЕ РАСХОДОВ", "%"],
+      ["average_x", "СРЕДНИЙ X", "x"],
+      ["best_x", "ЛУЧШИЙ X", "x"],
+      ["worst_x", "ХУДШИЙ X", "x"]
+    ]
+  },
+  {
+    title: "ЗАКУПКИ И СКЛАД",
+    metrics: [
+      ["invested", "ВЛОЖЕНО", " BYN"],
+      ["purchased_count", "КУПЛЕНО", ""],
+      ["in_stock_count", "В НАЛИЧИИ", ""],
+      ["warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ", " BYN"]
+    ]
+  },
+  {
+    title: "СРЕДНИЕ ПОКАЗАТЕЛИ",
+    metrics: [
+      ["average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ", " BYN"],
+      ["average_sale", "СРЕДНЯЯ ПРОДАЖА", " BYN"],
+      ["average_profit", "СРЕДНЯЯ ПРИБЫЛЬ", " BYN"],
+      ["average_sale_days", "СРЕДНЕЕ ВРЕМЯ ПРОДАЖИ", " дн."]
+    ]
+  }
+];
+
+function analyticsTone(key, value) {
+  if (key === "expenses") return " analytics-metric-amber";
+  if (["realized_profit", "net_profit", "roi", "roi_after_expenses", "average_profit"].includes(key)) {
+    return ` ${metricClass(value)}`;
+  }
+  return "";
+}
+
+function analyticsHtml(metrics) {
+  return analyticsGroups.map((group) => `
+    <section class="analytics-group ${group.className || ""}">
+      <h3>${group.title}</h3>
+      <div class="analytics-grid">
+        ${group.metrics.map(([key, label, suffix]) => `
+          <article class="analytics-metric${key === "net_profit" ? " analytics-hero" : ""}${analyticsTone(key, metrics[key])}">
+            <strong>${display(metrics[key], suffix)}</strong>
+            <span>${label}</span>
+          </article>`).join("")}
+      </div>
+    </section>`).join("");
+}
+
+let lastAnalyticsFingerprint = null;
+
+async function loadAnalytics(force = false) {
+  if (state.portfolioId === null) return;
+  const portfolioId = state.portfolioId;
+  const report = await api(`/api/analytics?portfolio_id=${portfolioId}&period=${analyticsPeriod.value}`);
+  if (state.portfolioId !== portfolioId) return;
+  const fingerprint = JSON.stringify(report);
+  if (!force && fingerprint === lastAnalyticsFingerprint) return;
+  lastAnalyticsFingerprint = fingerprint;
+  analyticsPeriodRange.textContent = `${report.period.start} — ${report.period.end}`;
+  analyticsSections.innerHTML = analyticsHtml(report.metrics);
+}
+
+async function setView(view) {
+  state.view = view;
+  const showAnalytics = view === "analytics";
+  catalogView.hidden = showAnalytics;
+  analyticsView.hidden = !showAnalytics;
+  analyticsButton.setAttribute("aria-pressed", String(showAnalytics));
+  analyticsButton.textContent = showAnalytics ? "Каталог" : "Аналитика";
+  addItemButton.hidden = showAnalytics;
+  telegramButton.hidden = showAnalytics;
+  if (showAnalytics) await loadAnalytics(true);
+}
+
 function itemHtml(item) {
   const photo = item.photo_url
-    ? `<img class="photo" src="${escapeHtml(item.photo_url)}" alt="Фото вещи">`
+    ? `<button class="photo photo-button" type="button" data-action="view-photo" data-photo-url="${escapeHtml(item.photo_url)}" aria-label="Открыть фото вещи">
+        <img src="${escapeHtml(item.photo_url)}" alt="Фото вещи">
+      </button>`
     : `<div class="photo">Нет фото</div>`;
-  const stateLabels = { in_stock: "В НАЛИЧИИ", sold: "ПРОДАНО", no_revenue: "БЕЗ ВЫРУЧКИ" };
-  const profitClass = item.profit === null ? "" : item.profit.startsWith("-") ? "metric-negative" : "metric-positive";
+  const stateLabels = { in_stock: "В НАЛИЧИИ", sold: "ПРОДАНО", no_revenue: "УШЛА НА БЛАГОЕ ДЕЛО" };
+  const profitClass = metricClass(item.profit);
   const saleValue = saleDrafts.has(item.id) ? saleDrafts.get(item.id) : (item.sale_price_byn ?? "");
   const itemMenuOpen = state.openItemMenuId === item.id;
   const saleDate = item.sale_date || "—";
   const saleDateDisabled = item.sale_date ? "" : " disabled";
   return `
-    <article class="item${itemMenuOpen ? " is-menu-open" : ""}" data-item-id="${item.id}">
+    <article class="item item-${item.sale_state}${itemMenuOpen ? " is-menu-open" : ""}" data-item-id="${item.id}">
       ${photo}
       <div class="item-content">
         <dl class="item-data">
-          <div><dt>Дата покупки</dt><dd>${escapeHtml(item.purchase_date)}</dd></div>
+          <div><dt>Дата покупки</dt><dd class="item-date">${escapeHtml(item.purchase_date)}</dd></div>
           <div><dt>Покупка</dt><dd>${escapeHtml(item.purchase_price_pln)} PLN</dd></div>
-          <div><dt>Себестоимость</dt><dd>${escapeHtml(item.cost_byn)} BYN</dd></div>
+          <div><dt>Себестоимость</dt><dd class="metric-cost">${escapeHtml(item.cost_byn)} BYN</dd></div>
           <div><dt>Курс</dt><dd>${escapeHtml(item.exchange_rate)}</dd></div>
-          <div><dt>Статус</dt><dd>${stateLabels[item.sale_state]}</dd></div>
-          <div><dt>Прибыль</dt><dd class="${profitClass}">${display(item.profit, " BYN")}</dd></div>
-          <div><dt>X</dt><dd>${display(item.x, "x")}</dd></div>
-          <div><dt>ROI</dt><dd>${display(item.roi, "%")}</dd></div>
+          <div><dt>Статус</dt><dd class="item-status status-${item.sale_state}">${stateLabels[item.sale_state]}</dd></div>
+          <div><dt>Прибыль</dt><dd class="metric-profit ${profitClass}">${display(item.profit, " BYN")}</dd></div>
+          <div><dt>X</dt><dd class="${metricClass(item.x)}">${display(item.x, "x")}</dd></div>
+          <div><dt>ROI</dt><dd class="${metricClass(item.roi)}">${display(item.roi, "%")}</dd></div>
           <div><dt>Дней до продажи</dt><dd>${display(item.days_to_sale)}</dd></div>
         </dl>
         <div class="item-footer">
@@ -252,9 +438,8 @@ function monthHtml(group) {
     </details>`;
 }
 
-async function loadPortfolios() {
+async function loadPortfolios(preferredId = state.portfolioId) {
   const portfolios = await api("/api/portfolios");
-  const previousId = state.portfolioId;
   portfolioSelect.replaceChildren(...portfolios.map((portfolio) => {
     const option = document.createElement("option");
     option.value = portfolio.id;
@@ -262,11 +447,12 @@ async function loadPortfolios() {
     return option;
   }));
   if (!portfolios.length) throw new Error("Нет доступных портфелей.");
-  state.portfolioId = portfolios.some((portfolio) => Number(portfolio.id) === previousId)
-    ? previousId
+  state.portfolioId = portfolios.some((portfolio) => Number(portfolio.id) === Number(preferredId))
+    ? Number(preferredId)
     : Number(portfolios[0].id);
   portfolioSelect.value = String(state.portfolioId);
   portfolioNameInput.value = portfolios.find((portfolio) => Number(portfolio.id) === state.portfolioId).name;
+  renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
 }
 
 async function loadCatalog(force = false) {
@@ -277,6 +463,9 @@ async function loadCatalog(force = false) {
   setMessage();
   const data = await api(`/api/catalog?portfolio_id=${portfolioId}&filter=${filter}`);
   if (state.portfolioId !== portfolioId || state.filter !== filter) return;
+  const fingerprint = JSON.stringify(data);
+  if (!force && fingerprint === lastCatalogFingerprint) return;
+  lastCatalogFingerprint = fingerprint;
   if (!state.rateDirty && (force || document.activeElement !== rateInput)) rateInput.value = data.exchange_rate;
   const summaryGroup = currentMonthGroup(data.months);
   collapsedSummary.innerHTML = collapsedSummaryHtml(summaryGroup);
@@ -333,8 +522,8 @@ async function loadTelegramStatus(force = false) {
     : "";
 }
 
-portfolioSelect.addEventListener("change", async () => {
-  state.portfolioId = Number(portfolioSelect.value);
+async function switchPortfolio(portfolioId) {
+  state.portfolioId = portfolioId;
   state.telegramChannelDraft = null;
   state.telegramChannelDirty = false;
   state.rateDraft = null;
@@ -342,19 +531,59 @@ portfolioSelect.addEventListener("change", async () => {
   state.openItemMenuId = null;
   saleDrafts.clear();
   monthlyDrafts.clear();
+  portfolioSelect.value = String(portfolioId);
   portfolioNameInput.value = portfolioSelect.selectedOptions[0].textContent;
-  try { await loadCatalog(true); await loadTelegramStatus(true); } catch (error) { setMessage(error.message); }
+  renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
+  try {
+    await loadCatalog(true);
+    await loadTelegramStatus(true);
+    if (state.view === "analytics") await loadAnalytics();
+  } catch (error) { setMessage(error.message); }
+}
+
+portfolioSelect.addEventListener("change", () => switchPortfolio(Number(portfolioSelect.value)));
+
+portfolioPickerButton.addEventListener("click", () => toggleGlassSelect(portfolioPickerButton, portfolioPickerMenu));
+portfolioPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  portfolioSelect.value = option.dataset.value;
+  renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
+  closeGlassSelects();
+  switchPortfolio(Number(option.dataset.value));
+});
+
+analyticsPickerButton.addEventListener("click", () => toggleGlassSelect(analyticsPickerButton, analyticsPickerMenu));
+analyticsPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  analyticsPeriod.value = option.dataset.value;
+  renderGlassSelect(analyticsPeriod, analyticsPickerLabel, analyticsPickerMenu);
+  closeGlassSelects();
+  analyticsPeriod.dispatchEvent(new Event("change"));
+});
+
+analyticsButton.addEventListener("click", async () => {
+  try { await setView(state.view === "catalog" ? "analytics" : "catalog"); }
+  catch (error) { setMessage(error.message); }
+});
+
+analyticsPeriod.addEventListener("change", async () => {
+  renderGlassSelect(analyticsPeriod, analyticsPickerLabel, analyticsPickerMenu);
+  lastAnalyticsFingerprint = null;
+  try { await loadAnalytics(true); } catch (error) { analyticsSections.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; }
 });
 
 addItemButton.addEventListener("click", () => {
-  const isOpening = newItemPanel.hidden;
-  newItemPanel.hidden = !isOpening;
-  addItemButton.setAttribute("aria-expanded", String(isOpening));
-  if (isOpening) document.querySelector('#itemForm [name="purchase_price_pln"]').focus();
+  const isOpening = togglePanel(newItemPanel, addItemButton);
+  if (isOpening) {
+    document.querySelector('#itemForm [name="purchase_price_pln"]').focus();
+  }
 });
 
 renamePortfolioButton.addEventListener("click", () => {
   renamePortfolioForm.hidden = !renamePortfolioForm.hidden;
+  createPortfolioForm.hidden = true;
   if (!renamePortfolioForm.hidden) {
     portfolioNameInput.value = portfolioSelect.selectedOptions[0].textContent;
     portfolioNameInput.focus();
@@ -366,21 +595,59 @@ document.querySelector("#cancelRenameButton").addEventListener("click", () => {
   renamePortfolioForm.hidden = true;
 });
 
+createPortfolioButton.addEventListener("click", () => {
+  const isOpening = createPortfolioForm.hidden;
+  createPortfolioForm.hidden = !isOpening;
+  renamePortfolioForm.hidden = true;
+  if (isOpening) {
+    newPortfolioNameInput.value = "";
+    newPortfolioNameInput.focus();
+  }
+});
+
+document.querySelector("#cancelCreatePortfolioButton").addEventListener("click", () => {
+  createPortfolioForm.hidden = true;
+});
+
+createPortfolioForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const created = await api("/api/portfolios", jsonOptions("POST", { name: newPortfolioNameInput.value }));
+    await loadPortfolios(created.id);
+    createPortfolioForm.hidden = true;
+    await switchPortfolio(created.id);
+    setMessage(`Портфель «${created.name}» добавлен.`);
+  } catch (error) { setMessage(error.message); }
+});
+
 renamePortfolioForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     const renamed = await api(`/api/portfolios/${state.portfolioId}`, jsonOptions("PUT", { name: portfolioNameInput.value }));
     portfolioSelect.selectedOptions[0].textContent = renamed.name;
     portfolioNameInput.value = renamed.name;
+    renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
     renamePortfolioForm.hidden = true;
     setMessage();
   } catch (error) { setMessage(error.message); }
 });
 
+deletePortfolioButton.addEventListener("click", async () => {
+  const portfolioName = portfolioSelect.selectedOptions[0]?.textContent || "текущий портфель";
+  if (!window.confirm(`Удалить портфель «${portfolioName}» и все его данные?`)) return;
+  try {
+    await api(`/api/portfolios/${state.portfolioId}`, { method: "DELETE" });
+    closeGlassSelects();
+    renamePortfolioForm.hidden = true;
+    createPortfolioForm.hidden = true;
+    await loadPortfolios();
+    await switchPortfolio(state.portfolioId);
+    setMessage(`Портфель «${portfolioName}» удалён.`);
+  } catch (error) { setMessage(error.message); }
+});
+
 telegramButton.addEventListener("click", async () => {
-  const isOpening = telegramPanel.hidden;
-  telegramPanel.hidden = !isOpening;
-  telegramButton.setAttribute("aria-expanded", String(isOpening));
+  const isOpening = togglePanel(telegramPanel, telegramButton);
   if (isOpening) {
     try { await loadTelegramStatus(); } catch (error) { setMessage(error.message); }
   }
@@ -483,13 +750,14 @@ catalogRoot.addEventListener("toggle", (event) => {
   if (month.dataset.period === collapsedSummaryPeriod) collapsedSummary.hidden = month.open;
 }, true);
 
-document.querySelector("#filters").addEventListener("click", async (event) => {
+filters.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-filter]");
   if (!button) return;
   state.filter = button.dataset.filter;
-  document.querySelectorAll("#filters button").forEach((current) => {
+  filters.querySelectorAll("button").forEach((current) => {
     current.setAttribute("aria-pressed", String(current === button));
   });
+  updateFilterIndicator();
   try { await loadCatalog(true); } catch (error) { setMessage(error.message); }
 });
 
@@ -573,6 +841,11 @@ catalogRoot.addEventListener("submit", async (event) => {
 });
 
 catalogRoot.addEventListener("click", async (event) => {
+  const photoButton = event.target.closest('button[data-action="view-photo"]');
+  if (photoButton) {
+    openPhotoViewer(photoButton.dataset.photoUrl);
+    return;
+  }
   const editButton = event.target.closest('button[data-action="edit-item-field"]');
   if (editButton) {
     const menu = editButton.closest(".item-menu");
@@ -592,17 +865,16 @@ catalogRoot.addEventListener("click", async (event) => {
     const menu = menuButton.nextElementSibling;
     const item = menuButton.closest(".item");
     const itemId = Number(menuButton.closest("[data-item-id]").dataset.itemId);
-    const isOpening = menu.hidden;
+    const isOpening = menu.hidden || menu.classList.contains("surface-exit");
     state.openItemMenuId = isOpening ? itemId : null;
     document.querySelectorAll(".item-menu").forEach((currentMenu) => {
       if (currentMenu === menu) return;
-      currentMenu.hidden = true;
-      currentMenu.closest(".item")?.classList.remove("is-menu-open");
+      animateVisibility(currentMenu, false, () => currentMenu.closest(".item")?.classList.remove("is-menu-open"));
       currentMenu.previousElementSibling?.setAttribute("aria-expanded", "false");
     });
-    menu.hidden = !isOpening;
-    item.classList.toggle("is-menu-open", isOpening);
-    menuButton.setAttribute("aria-expanded", String(!menu.hidden));
+    if (isOpening) item.classList.add("is-menu-open");
+    animateVisibility(menu, isOpening, () => item.classList.remove("is-menu-open"));
+    menuButton.setAttribute("aria-expanded", String(isOpening));
     return;
   }
   const button = event.target.closest('button[data-action="delete"]');
@@ -616,17 +888,20 @@ catalogRoot.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (!event.target.closest(".glass-select")) closeGlassSelects();
   if (event.target.closest(".item-menu-wrap")) return;
   if (state.openItemMenuId === null) return;
   state.openItemMenuId = null;
-  document.querySelectorAll(".item-menu").forEach((menu) => { menu.hidden = true; });
-  document.querySelectorAll(".item.is-menu-open").forEach((item) => {
-    item.classList.remove("is-menu-open");
+  document.querySelectorAll(".item-menu").forEach((menu) => {
+    animateVisibility(menu, false, () => menu.closest(".item")?.classList.remove("is-menu-open"));
   });
   document.querySelectorAll(".item-menu-button").forEach((button) => {
     button.setAttribute("aria-expanded", "false");
   });
 });
+
+photoViewer.addEventListener("click", () => photoViewer.close());
+photoViewer.addEventListener("close", () => photoViewerImage.removeAttribute("src"));
 
 rateInput.addEventListener("input", () => {
   state.rateDraft = rateInput.value;
@@ -634,15 +909,22 @@ rateInput.addEventListener("input", () => {
 });
 
 let liveRefreshBusy = false;
+let lastCatalogFingerprint = null;
 setInterval(async () => {
   if (document.hidden || !state.telegramLive || state.portfolioId === null || liveRefreshBusy) return;
   liveRefreshBusy = true;
-  try { await loadCatalog(); await loadTelegramStatus(); } catch (error) { setMessage(error.message); }
+  try {
+    await loadCatalog();
+    await loadTelegramStatus();
+    if (state.view === "analytics") await loadAnalytics();
+  } catch (error) { setMessage(error.message); }
   liveRefreshBusy = false;
 }, 2000);
 
 document.addEventListener("DOMContentLoaded", async () => {
   document.querySelector('#itemForm [name="purchase_date"]').valueAsDate = new Date();
+  updateFilterIndicator();
+  renderGlassSelect(analyticsPeriod, analyticsPickerLabel, analyticsPickerMenu);
   try {
     await loadPortfolios();
     await loadCatalog();

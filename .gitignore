@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 .web-dev/
 .test-tmp/
+.pytest-tmp*/
+.codex-test-tmp*/
 *.pyo
 .Python
 .venv/

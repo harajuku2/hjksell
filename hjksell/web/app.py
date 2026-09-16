@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
+import mimetypes
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +18,7 @@ from ..repositories.item_repository import ItemRepository
 from ..repositories.portfolio_repository import PortfolioRepository
 from ..repositories.settings_repository import SettingsRepository
 from ..repositories.telegram_repository import TelegramRepository
+from ..services.analytics import AnalyticsService, PeriodPreset
 from ..services.finance import parse_decimal
 from ..services.items import ItemService
 from ..services.photos import PhotoService
@@ -30,6 +32,7 @@ from .schemas import (
     ItemCreate,
     ItemUpdate,
     MonthlyValuesUpdate,
+    PortfolioCreate,
     PortfolioRename,
     SaleUpdate,
     SaleDateUpdate,
@@ -46,6 +49,10 @@ ALLOWED_IMAGE_TYPES = {
     ".gif": {"image/gif"},
     ".bmp": {"image/bmp"},
 }
+
+# Windows does not always register font MIME types. StaticFiles needs this
+# mapping so browser font loading stays reliable on a clean local machine.
+mimetypes.add_type("font/ttf", ".ttf")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
@@ -65,6 +72,7 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     resolved_paths = paths or web_dev_paths()
     engine, session_factory = initialize_database(resolved_paths)
     static_root = Path(__file__).with_name("static")
+    font_root = Path(__file__).parents[2] / "assets" / "fonts"
 
     telegram_manager = WebTelegramManager(session_factory, resolved_paths)
 
@@ -109,6 +117,15 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     def portfolios(session: SessionDependency) -> list[dict]:
         return [{"id": portfolio.id, "name": portfolio.name} for portfolio in PortfolioRepository(session).list_all()]
 
+    @app.post("/api/portfolios", status_code=201)
+    def create_portfolio(payload: PortfolioCreate, session: SessionDependency) -> dict:
+        try:
+            portfolio = PortfolioService(PortfolioRepository(session)).create(payload.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        session.commit()
+        return {"id": portfolio.id, "name": portfolio.name}
+
     @app.put("/api/portfolios/{portfolio_id}")
     def rename_portfolio(portfolio_id: int, payload: PortfolioRename, session: SessionDependency) -> dict:
         portfolio = portfolio_or_404(session, portfolio_id)
@@ -118,6 +135,18 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         session.commit()
         return {"id": renamed.id, "name": renamed.name}
+
+    @app.delete("/api/portfolios/{portfolio_id}")
+    def delete_portfolio(portfolio_id: int, session: SessionDependency) -> dict:
+        portfolio = portfolio_or_404(session, portfolio_id)
+        if len(PortfolioRepository(session).list_all()) <= 2:
+            raise HTTPException(status_code=422, detail="Нельзя удалить последние два портфеля.")
+        telegram_manager.remove(portfolio_id)
+        deleted_id = portfolio.id
+        deleted_name = portfolio.name
+        PortfolioRepository(session).delete(portfolio)
+        session.commit()
+        return {"id": deleted_id, "name": deleted_name}
 
     @app.get("/api/telegram/status")
     def telegram_status(portfolio_id: int, session: SessionDependency) -> dict:
@@ -178,6 +207,51 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if (year is None) != (month is None):
             raise HTTPException(status_code=422, detail="Год и месяц нужно передавать вместе.")
         return CatalogQueryService(session, resolved_paths.photos).catalog(portfolio_id, filter, year, month)
+
+    @app.get("/api/analytics")
+    def analytics(
+        session: SessionDependency,
+        portfolio_id: int,
+        period: PeriodPreset = PeriodPreset.CURRENT_MONTH,
+    ) -> dict:
+        portfolio_or_404(session, portfolio_id)
+        report = AnalyticsService(ItemRepository(session)).report(portfolio_id, period)
+        metrics = report.metrics
+        money_fields = {
+            "revenue", "realized_profit", "net_profit", "expenses", "invested",
+            "warehouse_value", "average_cost", "average_sale", "average_profit",
+        }
+        decimal_fields = {
+            "roi", "roi_after_expenses", "average_x", "best_x", "worst_x", "average_sale_days",
+        }
+        count_fields = {"sold_count", "purchased_count", "in_stock_count"}
+        serialized = {
+            key: (
+                getattr(metrics, key)
+                if key in count_fields
+                else decimal_text(getattr(metrics, key))
+            )
+            for key in money_fields | decimal_fields | count_fields
+        }
+        return {
+            "portfolio_id": portfolio_id,
+            "preset": period.value,
+            "period": {
+                "start": report.period.start_date.isoformat(),
+                "end": report.period.end_date.isoformat(),
+            },
+            "metrics": serialized,
+            "monthly": [
+                {
+                    "year": entry.year,
+                    "month": entry.month,
+                    "revenue": decimal_text(entry.revenue),
+                    "net_profit": decimal_text(entry.net_profit),
+                    "invested": decimal_text(entry.invested),
+                }
+                for entry in report.monthly
+            ],
+        }
 
     @app.put("/api/settings/exchange-rate")
     def update_exchange_rate(payload: ExchangeRateUpdate, session: SessionDependency) -> dict:
@@ -303,5 +377,6 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Изображение не найдено.")
         return FileResponse(target)
 
+    app.mount("/fonts", StaticFiles(directory=font_root), name="fonts")
     app.mount("/", StaticFiles(directory=static_root, html=True), name="web")
     return app
