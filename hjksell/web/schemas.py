@@ -14,6 +14,20 @@ class StrictModel(BaseModel):
 
 class ExchangeRateUpdate(StrictModel):
     rate: str
+    portfolio_id: int | None = None
+
+
+class CurrencySettingsUpdate(StrictModel):
+    portfolio_id: int
+    purchase_currency: str
+    sale_currency: str
+    rate: str
+
+
+class AutomaticExpenseUpdate(StrictModel):
+    portfolio_id: int
+    amount: str
+    expense_currency: str
 
 
 class PortfolioRename(StrictModel):
@@ -52,6 +66,7 @@ class ItemCreate(StrictModel):
 class ItemUpdate(StrictModel):
     portfolio_id: int
     purchase_price_pln: str | None = None
+    purchase_expense: str | None = None
     purchase_date: date | None = None
     exchange_rate: str | None = None
 

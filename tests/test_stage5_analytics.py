@@ -160,8 +160,8 @@ def test_expenses_sum_across_months_and_profit_formulas():
         assert metrics.expenses == Decimal("30.00")
         assert metrics.realized_profit == Decimal("330.00")
         assert metrics.net_profit == Decimal("300.00")
-        assert metrics.roi == Decimal("194.12")
-        assert metrics.roi_after_expenses == Decimal("176.47")
+        assert metrics.roi == Decimal("294.12")
+        assert metrics.roi_after_expenses == Decimal("276.47")
 
 
 def test_other_income_and_advertising_flow_through_detailed_analytics_only_as_defined():
@@ -176,9 +176,11 @@ def test_other_income_and_advertising_flow_through_detailed_analytics_only_as_de
         metrics = AnalyticsService(repo).detailed_metrics(
             mine.id, AnalyticsPeriod(date(2026, 9, 1), date(2026, 9, 30))
         )
-        assert metrics.revenue == Decimal("1150.00")
+        assert metrics.revenue == Decimal("1000.00")
         assert metrics.realized_profit == Decimal("600.00")
         assert metrics.net_profit == Decimal("700.00")
+        assert metrics.roi == Decimal("300.00")
+        assert metrics.roi_after_expenses == Decimal("275.00")
         assert metrics.sold_count == 1
         assert metrics.average_sale == Decimal("1000.00")
 
@@ -310,7 +312,7 @@ def test_catalogue_monthly_sales_label_uses_sales_terminology() -> None:
         )
         try:
             assert "ВЫРУЧКА" not in [label.text() for label in widget.findChildren(QLabel)]
-            assert "ПРОДАЖИ" in [label.text() for label in widget.findChildren(QLabel)]
+            assert "ПРОДАНО ВЕЩЕЙ НА" in [label.text() for label in widget.findChildren(QLabel)]
         finally:
             widget.deleteLater()
             app.processEvents()

@@ -1,5 +1,36 @@
 # Changelog
 
+- Public deployment restore drills now reject snapshots with missing or unsafe item-photo references, in addition to SQLite integrity failures.
+
+## 2026-09-23
+
+- Added the first public Mini App security foundation: server-side Telegram initData validation, owner-scoped portfolios and photos, signed same-origin media sessions, and explicit persistent-storage configuration. Public mode does not seed desktop portfolios; deployment and operational checks remain outstanding.
+- Prepared a single-instance Docker Compose deployment with Caddy-managed HTTPS, non-root read-only app container, explicit persistent data mount, secret-file inputs, health checks, and a Linux host checklist. The image still needs validation on a Linux Docker host.
+- Made public startup fail closed when its database contains portfolios without verified Telegram owners, preventing accidental reuse of desktop or development data.
+- Kept active Mini App sessions usable when Telegram leaves stale initData in an open WebView: an existing signed cookie is accepted as fallback and is renewed only by fresh Telegram data.
+- Added baseline HSTS, content-type-sniffing, and referrer-policy headers at the HTTPS proxy without imposing an unverified Content Security Policy on Telegram's WebView.
+- Prepared a daily Restic off-site backup and isolated restore-drill path: SQLite online snapshot with integrity check, streamed photos, encrypted repository, retention, and a target guard that prevents restoration over production data.
+- Limited proxied request bodies to 6 MB before FastAPI reads them, and pinned Caddy to 2.10+ where that request-body guard is available.
+- Added a secret-free Linux CI workflow for the full test suite, production image build, Caddy validation, and isolated public-mode container/auth smoke test.
+- Disabled HTTP caching for authenticated API data and owner-scoped photos, including unauthorized responses, to prevent private WebView data from being reused by browser or shared caches.
+- Changed Restic restore verification to stream directly from the repository into its isolated target, avoiding a full photo archive on the host's RAM-backed `/run` filesystem.
+- Added an SHA-pinned `pip-audit` CI gate for the exact production Python dependency set.
+- Enabled weekly Dependabot update PRs for Python dependencies, Docker images, and GitHub Actions.
+- Added a public-mode-only owner-scoped data-erasure control that removes a user's records and referenced photos; documented that encrypted backups retain snapshots on their independent schedule.
+
+- Reworked Catalog month summaries into purchase cohorts: monthly ROI uses all invested capital, the upper profit field shows realized Item profit, and the lower total profit field shows the monthly cash result after sales, income, advertising, expenses, and all purchases.
+- Expanded both Web currency selectors to the full supported currency set and made official-rate requests bypass a stale local proxy, restoring the `Актуальный курс` action.
+- Added a Settings control for a portfolio-scoped automatic purchase expense. It converts the saved amount into the purchase currency once, applies only to subsequently created Items, and leaves each Item's three-dot expense override intact.
+- Added a per-Item purchase-currency expense to the desktop and Web action menus; it recalculates historical cost, profit, X, ROI, warehouse value, and Analytics, while a blank saved value clears the expense.
+- Replaced the Web Catalog header actions with a stable five-zone bottom navigator for Catalog, Analytics, Telegram, manual Item creation, and Settings; Telegram keeps a scoped portfolio picker while the primary portfolio selector remains in the header.
+- Reworked Web currency selection into a compact graphite panel and an opaque full-screen currency list on every viewport; Analytics now concludes Result with illuminated net profit and Efficiency with illuminated average X.
+- Added portfolio-scoped multi-currency defaults for the Web Catalog, historical currency codes on Items, official NBRB cross-rate lookup, and dynamic currency labels without rewriting existing purchases.
+- Compacted the Web Catalog phone layout, removed transform-based mobile surface motion, reduced the dragon backdrop blur, added persistent mobile Portfolio/Analytics tabs, and highlighted net profit as the primary green result.
+- Renamed the analytics item-only result to `ПРИБЫЛЬ С ПРОДАЖ`, making its separation from additional monthly income explicit.
+- Reworked the supplied dragon backdrop with a lighter contour-preserving blur, changed the mobile tabs into an edge-to-edge bottom sheet with only a top border, and added an explicit close control to the mobile currency picker.
+- Replaced the backdrop with the user-supplied blurred image asset, preserving its dark contour treatment exactly as provided.
+- Kept sales and ROI isolated from monthly additional income: other income and advertising now affect only net profit, while expenses alone affect ROI after expenses.
+
 ## V1.0.0 — `c65bba1`
 
 - Stable local Windows release.
@@ -39,7 +70,7 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 ## Monthly income and free-item support
 
 - Added persisted portfolio/month-scoped `ДРУГИЕ ДОХОДЫ` and `РЕКЛАМА` values alongside monthly expenses.
-- Updated Catalog and Analytics formulas so other income contributes to `ПРОДАЖИ` and net profit, while advertising contributes only to net profit.
+- Updated Catalog and Analytics formulas so other income and advertising contribute only to net profit and never change `ПРОДАЖИ`, X, or ROI.
 - Allowed zero-cost Items, with undefined X/ROI displayed as `—`, and accepted Telegram caption `0`.
 - Added centralized runtime typography roles with Oswald as the single visible family across Catalog and Analytics; Kulag Sha remains registered and packaged for reversible experimentation, and Onest remains available as fallback.
 
@@ -49,6 +80,13 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 - Removed Catalog portfolio/filter drop-shadow effects whose rectangular widget bounds created visible glow boundaries.
 
 ## Local web skeleton Phase 1
+
+- Hardened the mobile Catalog layout for real-device use: contained date inputs and Item photos, opaque Item menus, centered action dots, brighter semantic status rails, viewport-safe currency controls, edge-to-edge bottom navigation zones, and an empty reserved brand slot in the header.
+- Reordered the Web Catalog so a fresh portfolio view starts with all months collapsed, keeps the current month first, and places its compact summary directly below it; neutralized Item and currency menu surfaces to opaque graphite.
+- Reordered Item metrics so Profit occupies the former ROI position and is framed as the primary positive/negative neon result, with ROI moving into the former Profit position.
+- Made desktop Item profit a stronger semantic neon value without a frame, retained the framed mobile treatment, added a fast mobile return-to-top control, and normalized Item action menus to opaque monochrome graphite.
+- Made the mobile bottom navigation fully opaque through its safe-area surface, moved mobile Item profit into a left-shifted focal row, placed the desktop Analytics toggle last for immediate return to portfolios, and removed focus/message flicker after a successful current-rate lookup.
+- Added a portfolio picker directly to Analytics and reserved a third, empty Settings tab in the mobile navigation.
 
 - Added an isolated FastAPI backend over the existing repositories, ItemService, AnalyticsService, finance helpers, and shared Catalog filter semantics.
 - Added a neutral no-build Catalog frontend with portfolio switching, historical FX-safe Item creation, exact sale filters, month-owned financial values, complete month collapse, sales/cancellation, development photos, and soft deletion.
@@ -71,3 +109,7 @@ The approved Catalog and Analytics work is recorded in checkpoint commit `d8a8e6
 - Replaced browser-native portfolio and analytics period popups with local glass listboxes, kept the primary analytics metric inside its result band, added action-driven reveals for the add-item and Telegram panels, and moved the backdrop to a blurred black-and-graphite dragon treatment with edge reflections on glass surfaces.
 - Unified Catalog and Analytics panel, selector, and Item-menu motion into the same reversible open/close transition; restored `ЧИСТАЯ ПРИБЫЛЬ` to a bounded result-grid cell and applied the user-provided dragon raster as the CSS-blurred Web backdrop.
 - Added protected Web portfolio deletion with cleanup of portfolio-scoped Items, monthly values, and Telegram records; matched the new-portfolio form typography to the shared interface font.
+# 2026-09-23
+
+- Added an explicit production web mode foundation: Telegram Mini App initData verification, owner-scoped portfolios, and required persistent data path configuration. Local development remains isolated and keeps its seeded portfolios.
+- Encrypted per-portfolio Telegram import-bot tokens in public mode and scoped discovered channels to their owning portfolio. Added a provider-neutral single-instance deployment guide and a slim Web dependency set.

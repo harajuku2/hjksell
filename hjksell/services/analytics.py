@@ -74,6 +74,7 @@ class MonthlyMetrics:
     other_income: Decimal
     advertising: Decimal
     net_profit: Decimal
+    total_profit: Decimal
     roi_after_expenses: Decimal | None
 
 
@@ -90,6 +91,7 @@ class AnalyticsMetrics:
     other_income: Decimal
     advertising: Decimal
     net_profit: Decimal
+    total_profit: Decimal
     average_x: Decimal | None
     roi: Decimal | None
     roi_after_expenses: Decimal | None
@@ -296,30 +298,53 @@ class AnalyticsService:
 
     def monthly_metrics(self, portfolio_id: int, year: int, month: int) -> MonthlyMetrics:
         period = AnalyticsPeriod(_month_start(year, month), _month_end(_month_start(year, month)))
-        return self._metrics_for_period(portfolio_id, period)
+        items = self.repository.active_items(portfolio_id)
+        purchased = [item for item in items if _period_contains(item.purchase_date, period)]
+        sold = [item for item in purchased if item.sale_price_byn is not None]
+        return self._monthly_metrics(portfolio_id, period, purchased, sold)
 
     def _metrics_for_period(self, portfolio_id: int, period: AnalyticsPeriod) -> MonthlyMetrics:
         items = self.repository.active_items(portfolio_id)
         purchased = [item for item in items if _period_contains(item.purchase_date, period)]
         sold = [item for item in items if _period_contains(item.sale_date, period) and item.sale_price_byn is not None]
+        return self._monthly_metrics(portfolio_id, period, purchased, sold)
+
+    def _monthly_metrics(
+        self,
+        portfolio_id: int,
+        period: AnalyticsPeriod,
+        purchased: list,
+        sold: list,
+    ) -> MonthlyMetrics:
         invested = _money(sum((_finite(item.cost_byn) for item in purchased), Decimal("0")))
         item_sales_revenue = _money(sum((_finite(item.sale_price_byn) for item in sold), Decimal("0")))
         realized_profit = _money(sum((_item_profit(item) for item in sold), Decimal("0")))
         costs_of_sold = sum((_finite(item.cost_byn) for item in sold), Decimal("0"))
         x_values = [value for value in (_item_x(item) for item in sold) if value is not None]
         average_x = _average(x_values)
-        roi = None if costs_of_sold == 0 else _money(realized_profit / costs_of_sold * Decimal("100"))
         expenses = _money(self.repository.monthly_expense(portfolio_id, period.start_date.year, period.start_date.month))
         other_income, advertising = (
             _money(value)
             for value in self.repository.monthly_income(portfolio_id, period.start_date.year, period.start_date.month)
         )
-        revenue = _money(item_sales_revenue + other_income)
+        revenue = item_sales_revenue
         net_profit = _money(realized_profit + other_income + advertising - expenses)
-        roi_after_expenses = None if costs_of_sold == 0 else _money(net_profit / costs_of_sold * Decimal("100"))
+        total_profit = _money(revenue + other_income + advertising - expenses - invested)
+        total_profit = _money(
+            revenue + other_income + advertising - expenses - invested
+        )
+        roi = (
+            None
+            if invested == 0
+            else _money((invested + total_profit) / invested * Decimal("100"))
+        )
+        profit_after_expenses = _money(realized_profit - expenses)
+        roi_after_expenses = (
+            None if costs_of_sold == 0 else _money(profit_after_expenses / costs_of_sold * Decimal("100"))
+        )
         return MonthlyMetrics(
             invested, len(purchased), revenue, len(sold), realized_profit, average_x, roi,
-            expenses, other_income, advertising, net_profit, roi_after_expenses
+            expenses, other_income, advertising, net_profit, total_profit, roi_after_expenses
         )
 
     def detailed_metrics(
@@ -345,8 +370,10 @@ class AnalyticsService:
         expenses = _money(sum((_finite(row[2]) for row in monthly_values), Decimal("0")))
         other_income = _money(sum((_finite(row[3]) for row in monthly_values), Decimal("0")))
         advertising = _money(sum((_finite(row[4]) for row in monthly_values), Decimal("0")))
-        revenue = _money(item_sales_revenue + other_income)
+        revenue = item_sales_revenue
         net_profit = _money(realized_profit + other_income + advertising - expenses)
+        total_profit = _money(revenue + other_income + advertising - expenses - invested)
+        profit_after_expenses = _money(realized_profit - expenses)
         in_stock = [item for item in items if item.status == ItemStatus.IN_STOCK.value]
         return AnalyticsMetrics(
             invested=invested,
@@ -358,9 +385,12 @@ class AnalyticsService:
             other_income=other_income,
             advertising=advertising,
             net_profit=net_profit,
+            total_profit=total_profit,
             average_x=_average(x_values),
-            roi=None if sold_cost == 0 else _money(realized_profit / sold_cost * Decimal("100")),
-            roi_after_expenses=None if sold_cost == 0 else _money(net_profit / sold_cost * Decimal("100")),
+            roi=None if invested == 0 else _money((revenue + other_income + advertising) / invested * Decimal("100")),
+            roi_after_expenses=(
+                None if invested == 0 else _money((invested + total_profit) / invested * Decimal("100"))
+            ),
             average_cost=None if not purchased else _money(invested / Decimal(len(purchased))),
             average_sale=None if not sold else _money(item_sales_revenue / Decimal(len(sold))),
             average_profit=_average(profits),

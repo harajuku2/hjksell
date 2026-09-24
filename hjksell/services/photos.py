@@ -45,3 +45,19 @@ class PhotoService:
         destination = self.paths.photos / f"{uuid.uuid4().hex}{normalized_suffix}"
         destination.write_bytes(content)
         return str(destination)
+
+    def delete_photo_paths(self, photo_paths: list[str]) -> int:
+        """Delete known item photos without following paths outside the media root."""
+
+        media_root = self.paths.photos.resolve(strict=True)
+        deleted = 0
+        for photo_path in set(photo_paths):
+            candidate = Path(photo_path)
+            if candidate.parent.resolve(strict=True) != media_root:
+                raise ValueError("Отказано в удалении фотографии за пределами хранилища HJKsell.")
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError as exc:
+                raise RuntimeError("Не удалось полностью очистить фотографии портфеля.") from exc
+            deleted += 1
+        return deleted

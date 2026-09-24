@@ -49,9 +49,12 @@ class CatalogQueryService:
         if year is not None and month is not None:
             periods = {(year, month)}
 
+        profile = self.settings.currency_profile(portfolio_id)
         return {
             "portfolio_id": portfolio_id,
-            "exchange_rate": decimal_text(self.settings.current_exchange_rate(), "0.0001"),
+            "exchange_rate": decimal_text(profile.exchange_rate, "0.0001"),
+            "purchase_currency": profile.purchase_currency,
+            "sale_currency": profile.sale_currency,
             "filter": filter_key,
             "months": [
                 self._month(portfolio_id, period_year, period_month, visible_items)
@@ -64,11 +67,14 @@ class CatalogQueryService:
         return {
             "id": item.id,
             "portfolio_id": item.portfolio_id,
-            "photo_url": self._photo_url(item.photo_path),
+            "photo_url": self._photo_url(item.photo_path, item.portfolio_id),
             "purchase_date": item.purchase_date.isoformat(),
             "purchase_price_pln": decimal_text(item.purchase_price_pln),
+            "purchase_expense": decimal_text(item.purchase_expense),
+            "purchase_currency": item.purchase_currency,
             "exchange_rate": decimal_text(item.exchange_rate, "0.0001"),
             "cost_byn": decimal_text(item.cost_byn),
+            "sale_currency": item.sale_currency,
             "sale_price_byn": decimal_text(item.sale_price_byn),
             "sale_date": item.sale_date.isoformat() if item.sale_date else None,
             "sale_state": self._sale_state(item),
@@ -103,9 +109,11 @@ class CatalogQueryService:
             "purchased_count": metrics.purchased_count,
             "revenue": decimal_text(metrics.revenue),
             "sold_count": metrics.sold_count,
+            "realized_profit": decimal_text(metrics.realized_profit),
             "average_x": decimal_text(metrics.average_x),
             "roi": decimal_text(metrics.roi),
             "net_profit": decimal_text(metrics.net_profit),
+            "total_profit": decimal_text(metrics.total_profit),
         }
 
     @staticmethod
@@ -116,10 +124,10 @@ class CatalogQueryService:
             return "no_revenue"
         return "sold"
 
-    def _photo_url(self, photo_path: str | None) -> str | None:
+    def _photo_url(self, photo_path: str | None, portfolio_id: int) -> str | None:
         if not photo_path:
             return None
         path = Path(photo_path).resolve()
         if path.parent != self.media_root or not path.is_file():
             return None
-        return f"/api/dev-media/{path.name}"
+        return f"/api/dev-media/{path.name}?portfolio_id={portfolio_id}"

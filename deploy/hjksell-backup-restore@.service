@@ -1,0 +1,20 @@
+[Unit]
+Description=Restore HJKsell snapshot %i into a temporary verification directory
+
+[Service]
+Type=oneshot
+User=10001
+Group=10001
+EnvironmentFile=/etc/hjksell/backup.env
+RuntimeDirectory=hjksell-backup hjksell-restore-%i
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/python3 /opt/hjksell/deploy/backup_web.py restore %i --target /run/hjksell-restore-%i
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

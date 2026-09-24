@@ -163,15 +163,26 @@ class ItemRepository:
         self.session.flush()
         return item
 
+    def has_financial_history(self, portfolio_id: int) -> bool:
+        """Return whether changing the portfolio accounting currency would mix money units."""
+
+        item_id = self.session.scalar(select(Item.id).where(Item.portfolio_id == portfolio_id).limit(1))
+        monthly_id = self.session.scalar(
+            select(MonthlyExpense.id).where(MonthlyExpense.portfolio_id == portfolio_id).limit(1)
+        )
+        return item_id is not None or monthly_id is not None
+
     def update_purchase_details(
         self,
         item: Item,
         purchase_price_pln: Decimal,
+        purchase_expense: Decimal,
         purchase_date: date,
         exchange_rate: Decimal,
         cost_byn: Decimal,
     ) -> Item:
         item.purchase_price_pln = purchase_price_pln
+        item.purchase_expense = purchase_expense
         item.purchase_date = purchase_date
         item.exchange_rate = exchange_rate
         item.cost_byn = cost_byn

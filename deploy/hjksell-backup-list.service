@@ -1,0 +1,19 @@
+[Unit]
+Description=List HJKsell Restic backup snapshots
+
+[Service]
+Type=oneshot
+User=10001
+Group=10001
+EnvironmentFile=/etc/hjksell/backup.env
+RuntimeDirectory=hjksell-backup
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 /opt/hjksell/deploy/backup_web.py list
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

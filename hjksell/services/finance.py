@@ -42,8 +42,14 @@ def parse_decimal(
     return parsed
 
 
-def calculate_cost(purchase_price_pln: Decimal, exchange_rate: Decimal) -> Decimal:
-    return money(purchase_price_pln * exchange_rate)
+def calculate_cost(
+    purchase_price_pln: Decimal,
+    exchange_rate: Decimal,
+    purchase_expense: Decimal = Decimal("0.00"),
+) -> Decimal:
+    """Calculate historical cost including the item's purchase-currency expense."""
+
+    return money((purchase_price_pln + purchase_expense) * exchange_rate)
 
 
 def calculate_profit(sale_price_byn: Decimal | None, cost_byn: Decimal) -> Decimal | None:

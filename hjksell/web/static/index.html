@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HJKsell Web</title>
-  <link rel="stylesheet" href="/styles.css?v=smoked-dragon-motion-10">
+  <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+<link rel="stylesheet" href="/styles.css?v=catalog-polish-37">
 </head>
 <body>
   <header class="page-header">
-    <h1>HJKsell Catalog</h1>
+    <h1 class="brand-placeholder" aria-hidden="true"></h1>
     <section class="toolbar" aria-label="Настройки каталога">
       <div class="portfolio-control">
         <label for="portfolioSelect">ПОРТФЕЛЬ</label>
@@ -22,6 +23,7 @@
           <select id="portfolioSelect" class="sr-only" aria-label="Портфель"></select>
           <button id="renamePortfolioButton" class="icon-button" type="button" title="Изменить название портфеля" aria-label="Изменить название портфеля">✎</button>
           <button id="createPortfolioButton" class="icon-button" type="button" title="Добавить портфель" aria-label="Добавить портфель">+</button>
+          <button id="deletePortfolioButton" class="icon-button portfolio-delete-button" type="button" title="Удалить текущий портфель" aria-label="Удалить текущий портфель">&#128465;</button>
         </div>
         <form id="renamePortfolioForm" class="rename-form" hidden>
           <input id="portfolioNameInput" name="name" maxlength="24" required aria-label="Новое название портфеля">
@@ -35,17 +37,67 @@
         </form>
       </div>
       <form id="rateForm" class="rate-form">
-        <span class="rate-label">PLN → BYN</span>
-        <input id="rateInput" name="rate" inputmode="decimal" required aria-label="Курс PLN к BYN">
-        <button type="submit">Сохранить курс</button>
+        <div class="rate-main-row">
+          <span id="ratePairLabel" class="rate-label">PLN → BYN</span>
+          <input id="rateInput" name="rate" inputmode="decimal" required aria-label="Курс валют">
+          <button class="compact-action" type="submit">Сохранить</button>
+          <button id="latestRateButton" class="compact-action" type="button">Актуальный курс</button>
+          <button id="currencyPanelButton" class="currency-panel-button" type="button" aria-expanded="false" aria-controls="currencyPanel">Другие валюты</button>
+        </div>
+        <section id="currencyPanel" class="currency-panel instant-surface" aria-label="Настройка валют портфеля" hidden>
+          <button id="currencyPanelClose" class="currency-panel-close" type="button" title="Закрыть выбор валют" aria-label="Закрыть выбор валют">×</button>
+          <label>Исходная валюта
+            <div class="glass-select currency-select" id="purchaseCurrencyPicker">
+              <button id="purchaseCurrencyPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+                <span id="purchaseCurrencyPickerLabel">PLN</span>
+              </button>
+              <div id="purchaseCurrencyPickerMenu" class="glass-select-menu instant-surface" role="listbox" hidden></div>
+            </div>
+            <select id="purchaseCurrencySelect" class="sr-only" aria-label="Исходная валюта">
+              <option value="PLN">PLN — польский злотый</option>
+              <option value="EUR">EUR — евро</option>
+              <option value="USD">USD — доллар США</option>
+              <option value="CNY">CNY — китайский юань</option>
+              <option value="JPY">JPY — японская иена</option>
+              <option value="SEK">SEK — шведская крона</option>
+              <option value="GBP">GBP — фунт стерлингов</option>
+              <option value="CZK">CZK — чешская крона</option>
+              <option value="DKK">DKK — датская крона</option>
+              <option value="NOK">NOK — норвежская крона</option>
+              <option value="CHF">CHF — швейцарский франк</option>
+              <option value="TRY">TRY — турецкая лира</option>
+              <option value="RUB">RUB — российский рубль</option>
+              <option value="BYN">BYN — белорусский рубль</option>
+            </select>
+          </label>
+          <label>Валюта продажи
+            <div class="glass-select currency-select" id="saleCurrencyPicker">
+              <button id="saleCurrencyPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+                <span id="saleCurrencyPickerLabel">BYN</span>
+              </button>
+              <div id="saleCurrencyPickerMenu" class="glass-select-menu instant-surface" role="listbox" hidden></div>
+            </div>
+            <select id="saleCurrencySelect" class="sr-only" aria-label="Валюта продажи">
+              <option value="BYN">BYN — белорусский рубль</option>
+              <option value="PLN">PLN — польский злотый</option>
+              <option value="EUR">EUR — евро</option>
+              <option value="USD">USD — доллар США</option>
+              <option value="CNY">CNY — китайский юань</option>
+              <option value="JPY">JPY — японская иена</option>
+              <option value="SEK">SEK — шведская крона</option>
+              <option value="GBP">GBP — фунт стерлингов</option>
+              <option value="CZK">CZK — чешская крона</option>
+              <option value="DKK">DKK — датская крона</option>
+              <option value="NOK">NOK — норвежская крона</option>
+              <option value="CHF">CHF — швейцарский франк</option>
+              <option value="TRY">TRY — турецкая лира</option>
+              <option value="RUB">RUB — российский рубль</option>
+            </select>
+          </label>
+          <p>Пара и курс применяются только к новым вещам.</p>
+        </section>
       </form>
     </section>
-    <div class="header-actions">
-      <button id="deletePortfolioButton" class="danger-action" type="button" title="Удалить текущий портфель" aria-label="Удалить текущий портфель">Удалить портфель</button>
-      <button id="analyticsButton" type="button" aria-pressed="false">Аналитика</button>
-      <button id="addItemButton" class="primary-action" type="button" aria-expanded="false" aria-controls="newItemPanel">Добавить вещь</button>
-      <button id="telegramButton" type="button" aria-expanded="false" aria-controls="telegramPanel">Telegram</button>
-    </div>
   </header>
 
   <main>
@@ -57,50 +109,74 @@
         <button type="button" data-filter="sold" aria-pressed="false">ПРОДАНО</button>
         <button type="button" data-filter="no_revenue" aria-pressed="false">БЕЗ ВЫРУЧКИ</button>
       </nav>
-      <section id="collapsedSummary" class="collapsed-summary" aria-label="Краткая статистика текущего месяца"></section>
     </div>
 
-    <section id="telegramPanel" class="telegram-panel" aria-label="Настройки Telegram" hidden>
-      <div class="panel-heading">
-        <h2>Telegram</h2>
-        <span id="telegramStatus" class="telegram-status">Не настроен</span>
-      </div>
-      <form id="telegramForm">
-        <label>Bot Token
-          <input id="telegramToken" name="token" type="password" autocomplete="off" placeholder="введите токен бота">
-        </label>
-        <label>ID канала
-          <input id="telegramChannel" name="channel_id" inputmode="numeric" placeholder="например, -1001234567890">
-        </label>
-        <button id="telegramValidateButton" type="button">Проверить токен</button>
-        <button class="primary-action" type="submit">Сохранить и запустить</button>
-        <button id="telegramClearButton" class="danger" type="button">Отключить и очистить</button>
-      </form>
-      <p id="telegramHint" class="telegram-hint">Публикация должна содержать одно фото и цену в PLN.</p>
-      <div id="discoveredChannels" class="discovered-channels" hidden></div>
+      <p id="message" role="status" aria-live="polite"></p>
+      <section id="catalog" aria-label="Каталог по месяцам"></section>
+      <section id="collapsedSummary" class="collapsed-summary" aria-label="Краткая статистика текущего месяца" hidden></section>
     </section>
 
-    <section id="newItemPanel" class="new-item" hidden>
-      <h2>Добавить вещь</h2>
-      <form id="itemForm">
-        <label>Цена покупки, PLN
-          <input name="purchase_price_pln" inputmode="decimal" required>
+    <section id="telegramView" class="tab-view" aria-label="Настройки Telegram" hidden>
+      <section id="telegramPanel" class="telegram-panel">
+        <div class="panel-heading">
+          <h2>Telegram</h2>
+          <span id="telegramStatus" class="telegram-status">Не настроен</span>
+        </div>
+        <label class="telegram-portfolio-control">Портфель
+          <div class="glass-select" id="telegramPortfolioPicker">
+            <button id="telegramPortfolioPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+              <span id="telegramPortfolioPickerLabel">Портфель</span>
+            </button>
+            <div id="telegramPortfolioPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+          </div>
+          <select id="telegramPortfolioSelect" class="sr-only" aria-label="Портфель Telegram"></select>
         </label>
-        <label>Дата покупки
-          <input name="purchase_date" type="date" required>
-        </label>
-        <label>Фото для dev-базы
-          <span class="file-picker">
-            <span data-file-name>Добавить фото</span>
-            <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp">
-          </span>
-        </label>
-        <button type="submit">Добавить</button>
-      </form>
+        <form id="telegramForm">
+          <label>Bot Token
+            <input id="telegramToken" name="token" type="password" autocomplete="off" placeholder="введите токен бота">
+          </label>
+          <label>ID канала
+            <input id="telegramChannel" name="channel_id" inputmode="numeric" placeholder="например, -1001234567890">
+          </label>
+          <button id="telegramValidateButton" type="button">Проверить токен</button>
+          <button class="primary-action" type="submit">Сохранить и запустить</button>
+          <button id="telegramClearButton" class="danger" type="button">Отключить и очистить</button>
+        </form>
+        <p id="telegramHint" class="telegram-hint">Публикация должна содержать одно фото и цену покупки.</p>
+        <div id="discoveredChannels" class="discovered-channels" hidden></div>
+      </section>
     </section>
 
-    <p id="message" role="status" aria-live="polite"></p>
-    <section id="catalog" aria-label="Каталог по месяцам"></section>
+    <section id="newItemView" class="tab-view" aria-label="Добавить вещь" hidden>
+      <section id="newItemPanel" class="new-item">
+        <h2>Добавить вещь</h2>
+        <label class="new-item-portfolio-control">Портфель
+          <div class="glass-select" id="newItemPortfolioPicker">
+            <button id="newItemPortfolioPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+              <span id="newItemPortfolioPickerLabel">Портфель</span>
+            </button>
+            <div id="newItemPortfolioPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+          </div>
+          <select id="newItemPortfolioSelect" class="sr-only" aria-label="Портфель новой вещи"></select>
+        </label>
+        <form id="itemForm">
+          <label><span id="itemPurchasePriceLabel">Цена покупки, PLN</span>
+            <input name="purchase_price_pln" inputmode="decimal" required>
+          </label>
+          <label class="new-item-date-control">Дата покупки
+            <span class="date-input-shell">
+              <input name="purchase_date" type="date" required>
+            </span>
+          </label>
+          <label>Фото для dev-базы
+            <span class="file-picker">
+              <span data-file-name>Добавить фото</span>
+              <input name="photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp">
+            </span>
+          </label>
+          <button type="submit">Добавить</button>
+        </form>
+      </section>
     </section>
 
     <section id="analyticsView" class="analytics-view" aria-label="Аналитика" hidden>
@@ -109,31 +185,107 @@
           <h2>Аналитика</h2>
           <p id="analyticsPeriodRange"></p>
         </div>
-        <label>Период
-          <div class="glass-select" id="analyticsPicker">
-            <button id="analyticsPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
-              <span id="analyticsPickerLabel">Текущий месяц</span>
-            </button>
-            <div id="analyticsPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+        <div class="analytics-heading-actions">
+          <div class="analytics-portfolio-control">
+            <span>Портфель</span>
+            <div class="glass-select" id="analyticsPortfolioPicker">
+              <button id="analyticsPortfolioPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox" aria-label="Портфель аналитики">
+                <span id="analyticsPortfolioPickerLabel">Портфель</span>
+              </button>
+              <div id="analyticsPortfolioPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+            </div>
+            <select id="analyticsPortfolioSelect" class="sr-only" aria-label="Портфель аналитики"></select>
           </div>
-          <select id="analyticsPeriod" class="sr-only">
-            <option value="current_month">Текущий месяц</option>
-            <option value="previous_month">Предыдущий месяц</option>
-            <option value="3_months">3 месяца</option>
-            <option value="6_months">6 месяцев</option>
-            <option value="current_year">Текущий год</option>
-            <option value="all_time">Всё время</option>
-          </select>
-        </label>
+          <label>Период
+            <div class="glass-select" id="analyticsPicker">
+              <button id="analyticsPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+                <span id="analyticsPickerLabel">Текущий месяц</span>
+              </button>
+              <div id="analyticsPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+            </div>
+            <select id="analyticsPeriod" class="sr-only">
+              <option value="current_month">Текущий месяц</option>
+              <option value="previous_month">Предыдущий месяц</option>
+              <option value="3_months">3 месяца</option>
+              <option value="6_months">6 месяцев</option>
+              <option value="current_year">Текущий год</option>
+              <option value="all_time">Всё время</option>
+            </select>
+          </label>
+        </div>
       </header>
       <div id="analyticsSections" class="analytics-sections"></div>
     </section>
+
+    <section id="settingsView" class="settings-view" aria-label="Настройки" hidden>
+      <section class="settings-panel" aria-labelledby="automaticExpenseHeading">
+        <div class="panel-heading">
+          <h2 id="automaticExpenseHeading">Автоматический расход</h2>
+        </div>
+        <form id="automaticExpenseForm">
+          <label class="automatic-expense-portfolio-control">Портфель
+            <div class="glass-select" id="automaticExpensePortfolioPicker">
+              <button id="automaticExpensePortfolioPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+                <span id="automaticExpensePortfolioPickerLabel">Портфель</span>
+              </button>
+              <div id="automaticExpensePortfolioPickerMenu" class="glass-select-menu" role="listbox" hidden></div>
+            </div>
+            <select id="automaticExpensePortfolioSelect" class="sr-only" aria-label="Портфель автоматического расхода"></select>
+          </label>
+          <label>Расход
+            <input id="automaticExpenseAmount" name="amount" inputmode="decimal" value="0.00" required>
+          </label>
+          <label>Валюта расхода
+            <div class="glass-select automatic-expense-currency-control" id="automaticExpenseCurrencyPicker">
+              <button id="automaticExpenseCurrencyPickerButton" class="glass-select-button" type="button" aria-expanded="false" aria-haspopup="listbox">
+                <span id="automaticExpenseCurrencyPickerLabel">PLN</span>
+              </button>
+              <div id="automaticExpenseCurrencyPickerMenu" class="glass-select-menu instant-surface" role="listbox" hidden></div>
+            </div>
+            <select id="automaticExpenseCurrencySelect" name="expense_currency" class="sr-only" aria-label="Валюта автоматического расхода">
+              <option value="PLN">PLN — польский злотый</option>
+              <option value="EUR">EUR — евро</option>
+              <option value="USD">USD — доллар США</option>
+              <option value="CNY">CNY — китайский юань</option>
+              <option value="JPY">JPY — японская иена</option>
+              <option value="SEK">SEK — шведская крона</option>
+              <option value="GBP">GBP — фунт стерлингов</option>
+              <option value="CZK">CZK — чешская крона</option>
+              <option value="DKK">DKK — датская крона</option>
+              <option value="NOK">NOK — норвежская крона</option>
+              <option value="CHF">CHF — швейцарский франк</option>
+              <option value="TRY">TRY — турецкая лира</option>
+              <option value="RUB">RUB — российский рубль</option>
+              <option value="BYN">BYN — белорусский рубль</option>
+            </select>
+          </label>
+          <button type="submit">Сохранить</button>
+        </form>
+        <p id="automaticExpenseHint" class="settings-hint">Применяется только к новым вещам выбранного портфеля.</p>
+      </section>
+      <section id="deleteMyDataPanel" class="settings-panel settings-danger-panel" aria-labelledby="deleteMyDataHeading" hidden>
+        <div class="panel-heading">
+          <h2 id="deleteMyDataHeading">Удаление данных</h2>
+        </div>
+        <p class="settings-hint">Удалит все ваши портфели, вещи, фотографии, финансовые записи и настройки Telegram. Восстановить их будет нельзя. Резервные копии очищаются отдельно по графику хранения.</p>
+        <button id="deleteMyDataButton" class="danger-action" type="button">Удалить все мои данные</button>
+      </section>
+    </section>
   </main>
+
+  <nav class="mobile-tab-bar" aria-label="Основная навигация">
+    <button id="mobileCatalogTab" type="button" aria-pressed="true">Портфели</button>
+    <button id="mobileAnalyticsTab" type="button" aria-pressed="false">Аналитика</button>
+    <button id="mobileTelegramTab" type="button" aria-pressed="false">Telegram</button>
+    <button id="mobileNewItemTab" type="button" aria-pressed="false">Добавить вещь</button>
+    <button id="mobileSettingsTab" type="button" aria-pressed="false">Настройки</button>
+  </nav>
+  <button id="scrollTopButton" class="scroll-top-button" type="button" title="Наверх" aria-label="Наверх" aria-hidden="true" tabindex="-1">&#8593;</button>
 
   <dialog id="photoViewer" class="photo-viewer" aria-label="Просмотр фото вещи">
     <img id="photoViewerImage" alt="Фото вещи в полном размере">
   </dialog>
 
-  <script src="/app.js?v=smoked-dragon-motion-10" defer></script>
+    <script src="/app.js?v=catalog-polish-45" defer></script>
 </body>
 </html>

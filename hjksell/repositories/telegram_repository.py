@@ -38,7 +38,11 @@ class TelegramRepository:
         self.session.flush()
 
     def token(self, portfolio_id: int = 1) -> str | None:
-        return self.config(portfolio_id).token
+        value = self.config(portfolio_id).token
+        if value is None:
+            return None
+        cipher = self.session.info.get("telegram_token_cipher")
+        return value if cipher is None else cipher.decrypt(value)
 
     def set_token(self, portfolio_id: int | str, token: str | None = None) -> None:
         if token is None:
@@ -47,7 +51,8 @@ class TelegramRepository:
         token = token.strip()
         if not token:
             raise ValueError("Введите токен Telegram.")
-        self.config(int(portfolio_id)).token = token
+        cipher = self.session.info.get("telegram_token_cipher")
+        self.config(int(portfolio_id)).token = token if cipher is None else cipher.encrypt(token)
         self.session.flush()
 
     def clear_config(self, portfolio_id: int) -> None:
@@ -71,26 +76,35 @@ class TelegramRepository:
             return self.session.scalar(statement.where(TelegramChannel.portfolio_id.is_(None)))
         return self.session.scalar(statement)
 
-    def discovered_channels(self) -> list[TelegramChannel]:
+    def discovered_channels(self, portfolio_id: int | None = None) -> list[TelegramChannel]:
+        scope_filter = TelegramChannel.portfolio_id.is_(None) if portfolio_id is None else TelegramChannel.portfolio_id == portfolio_id
         return list(
             self.session.scalars(
                 select(TelegramChannel)
-                .where(TelegramChannel.portfolio_id.is_(None))
+                .where(scope_filter, TelegramChannel.is_bound.is_(False))
                 .order_by(TelegramChannel.id.desc())
             )
         )
 
-    def record_discovered_channel(self, channel_id: str, title: str | None = None) -> TelegramChannel:
-        existing = self.channel(channel_id)
+    def record_discovered_channel(
+        self,
+        channel_id: str,
+        title: str | None = None,
+        portfolio_id: int | None = None,
+    ) -> TelegramChannel:
+        statement = select(TelegramChannel).where(TelegramChannel.channel_id == str(channel_id))
+        scope_filter = TelegramChannel.portfolio_id.is_(None) if portfolio_id is None else TelegramChannel.portfolio_id == portfolio_id
+        existing = self.session.scalar(statement.where(scope_filter))
         if existing is not None:
             if title and not existing.title:
                 existing.title = title[:255]
             self.session.flush()
             return existing
         channel = TelegramChannel(
-            portfolio_id=None,
+            portfolio_id=portfolio_id,
             channel_id=str(channel_id),
             title=None if title is None else title[:255],
+            is_bound=False,
         )
         self.session.add(channel)
         self.session.flush()
@@ -103,6 +117,7 @@ class TelegramRepository:
         existing = self.channel(normalized, portfolio_id)
         if existing is not None:
             existing.portfolio_id = portfolio_id
+            existing.is_bound = True
             if title:
                 existing.title = title[:255]
             self.session.flush()
@@ -111,6 +126,7 @@ class TelegramRepository:
             portfolio_id=portfolio_id,
             channel_id=normalized,
             title=None if title is None else title[:255],
+            is_bound=True,
         )
         self.session.add(channel)
         self.session.flush()

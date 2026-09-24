@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -22,9 +22,11 @@ class ItemStatus(StrEnum):
 
 class Portfolio(Base):
     __tablename__ = "portfolios"
+    __table_args__ = (UniqueConstraint("owner_telegram_id", "name", name="uq_portfolio_owner_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(32), nullable=False)
+    owner_telegram_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
 
@@ -36,8 +38,11 @@ class Item(Base):
     photo_path: Mapped[Optional[str]] = mapped_column(String(1024))
     purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
     purchase_price_pln: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    purchase_expense: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    purchase_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="PLN")
     exchange_rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     cost_byn: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    sale_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="BYN")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ItemStatus.IN_STOCK.value)
     sale_price_byn: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     sale_date: Mapped[Optional[date]] = mapped_column(Date)
@@ -77,6 +82,25 @@ class Setting(Base):
     )
 
 
+class PortfolioCurrencySetting(Base):
+    __tablename__ = "portfolio_currency_settings"
+
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), primary_key=True)
+    purchase_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="PLN")
+    sale_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="BYN")
+    exchange_rate: Mapped[Decimal] = mapped_column(Numeric(14, 6), nullable=False, default=Decimal("0.8500"))
+    automatic_expense_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=Decimal("0.00")
+    )
+    automatic_expense_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="PLN")
+    automatic_expense_purchase_rate: Mapped[Decimal] = mapped_column(
+        Numeric(14, 6), nullable=False, default=Decimal("1.0000")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=False
+    )
+
+
 class ExchangeRateHistory(Base):
     __tablename__ = "exchange_rate_history"
 
@@ -94,6 +118,7 @@ class TelegramChannel(Base):
     portfolio_id: Mapped[Optional[int]] = mapped_column(ForeignKey("portfolios.id"))
     channel_id: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[Optional[str]] = mapped_column(String(255))
+    is_bound: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.current_timestamp(), nullable=False)
 
 

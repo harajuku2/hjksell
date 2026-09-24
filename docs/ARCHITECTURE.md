@@ -12,7 +12,9 @@
 
 The repository itself must not become the user-data directory.
 
-The optional local web application runs independently from the desktop application. Its app factory always receives an explicit `AppPaths`; the default web runtime resolves only under repository-local `.web-dev/`, with SQLite at `.web-dev/data/hjk_sell_web_dev.db` and development media under `.web-dev/data/photos/`. It does not call `get_app_paths()` or use desktop Telegram state. `WebTelegramManager` owns Web polling through the shared Telegram importer and can be pointed at another `AppPaths` for deployment.
+The web application runs independently from the desktop application. Development resolves only under repository-local `.web-dev/`. Public mode is opt-in via `HJKSELL_ENV=production`, requires `HJKSELL_MINI_APP_BOT_TOKEN`, `HJKSELL_TOKEN_ENCRYPTION_KEY`, and an absolute persistent `HJKSELL_DATA_DIR`, and never seeds the local МОЯ/ДРУГА portfolios. Public API requests authenticate with Telegram `initData` or a short-lived signed secure cookie for same-origin photo rendering; a stale initData falls back to a still-valid cookie, but only fresh initData renews it. Protected API JSON and media responses use `Cache-Control: private, no-store` and vary on the authentication cookie and Telegram initData header. Public startup fails closed if the configured database contains a portfolio without a verified Telegram owner. Portfolios are scoped to the validated Telegram user ID. Per-portfolio Telegram import tokens are encrypted at rest in public mode. `WebTelegramManager` owns Web polling through the shared Telegram importer and uses the public data mount in deployment.
+
+In public mode, Settings offers an authenticated erase-all-data action for the current Telegram user. It removes all of that user's portfolio records and referenced photos from live storage; it is not available in local Web development. Encrypted off-site backup snapshots are independent and expire on their configured retention schedule.
 
 ## Layers
 
@@ -46,14 +48,20 @@ Sale input is BYN. A positive or zero value completes a sale and records a sale 
 
 ### Financial semantics
 
+- Web portfolios own an independent default purchase currency, accounting/sale currency, and exchange rate. These defaults apply only when a new Item is created.
+- Every Item stores its historical purchase and sale ISO currency codes alongside its historical exchange rate. Existing Items are never relabeled or recalculated when portfolio defaults change.
+- The accounting/sale currency cannot change after a portfolio has Item or monthly financial history, preventing totals from mixing different money units. Purchase currency and future rates may still change.
+- Optional current-rate lookup uses the official NBRB daily-rate API and derives cross-rates through BYN while respecting each published currency scale.
+- An Item can also carry a non-negative `purchase_expense` in its historical purchase currency. Blank editing clears it to zero; historical cost is `(purchase price + purchase expense) x historical exchange rate`.
+- Each portfolio can define an optional automatic per-Item expense in Settings. The configured source-currency amount is converted once to the current purchase currency and stored as the new Item's historical `purchase_expense`; existing Items are never changed, and an individual Item expense remains editable from its action menu.
 - profit = sale BYN - historical cost BYN;
 - X = sale / cost when cost is non-zero;
 - ROI = profit / cost × 100% when cost is non-zero;
 - zero-price disposal has revenue 0, negative profit, X 0, and ROI -100% when cost is positive.
 - Free Items may have zero historical cost; their profit is still calculated, while X and ROI are undefined and displayed as `—`.
-- Monthly `other_income_byn` and `advertising_byn` are stored with expenses by `portfolio_id` and calendar month. Other income contributes to `ПРОДАЖИ` and `ЧИСТАЯ ПРИБЫЛЬ`; advertising contributes only to `ЧИСТАЯ ПРИБЫЛЬ`.
+- Monthly `other_income_byn` and `advertising_byn` are stored with expenses by `portfolio_id` and calendar month. Detailed Analytics keeps those values separate from item sales, X, and ROI.
 
-Monthly purchase/investment and sale/revenue periods are independent. Net profit is realized profit minus monthly expenses, not current-month sales minus current-month purchases.
+Catalog month widgets are purchase cohorts: their sales and sold count cover only Items purchased in that month, even if they sold later. They show both realized Item profit and the monthly cash result, `total_profit = sales + other income + advertising − expenses − all cohort investment`. The widget ROI is `(all cohort investment + total_profit) / all cohort investment`, so 100% means the invested capital was returned without profit. Detailed Analytics still keeps purchase and sale periods independent and reports its existing calendar-period metrics.
 
 ### Catalog state
 
@@ -61,7 +69,7 @@ Filters are `ВСЕ`, `В НАЛИЧИИ`, `ПРОДАНО`, and `БЕЗ ВЫР�
 
 ### Portfolios
 
-Portfolios are independent persisted records; database initialization seeds two defaults, while the Web UI can create additional empty portfolios. `portfolio_id` is identity for Items, expenses, Analytics, Telegram config, channels, offsets, and imports. `Portfolio.name` is editable display text and must not be used to rediscover identity or reset renamed portfolios.
+ Portfolios are independent persisted records; desktop/development initialization seeds two defaults, while public initialization starts empty and creates a first portfolio for each validated Telegram user. `portfolio_id` is identity for Items, expenses, Analytics, Telegram config, channels, offsets, and imports. Public portfolios include `owner_telegram_id`; every API lookup must verify both portfolio ID and authenticated owner. `Portfolio.name` is editable display text and must not be used to rediscover identity or reset renamed portfolios.
 
 ### Telegram
 
@@ -71,7 +79,7 @@ Each portfolio has its own token, channel binding, update offset, imports, API c
 
 ### Database and migrations
 
-The current SQLAlchemy model includes portfolios, items, monthly expenses/income, settings, exchange-rate history, Telegram channels/configs/imports. Alembic migrations are in `alembic/versions/`; `0001` is the initial schema, `0005_portfolio_telegram_configs.py` introduced portfolio-specific Telegram configuration, and `0006_monthly_income_fields.py` adds the two monthly income columns. `initialize_database()` creates directories/schema, applies migrations when needed, and seeds the two required portfolios.
+The current SQLAlchemy model includes portfolios, items with historical purchase expenses, portfolio currency settings, monthly expenses/income, settings, exchange-rate history, Telegram channels/configs/imports. Alembic migrations are in `alembic/versions/`; `0001` is the initial schema, `0005_portfolio_telegram_configs.py` introduced portfolio-specific Telegram configuration, `0006_monthly_income_fields.py` adds the two monthly income columns, `0007_portfolio_currencies.py` preserves historical Item currency codes and adds portfolio defaults, `0008_item_purchase_expense.py` adds the item-level purchase-currency expense, `0009_portfolio_automatic_expense.py` adds the per-portfolio automatic expense setting, `0010_telegram_portfolio_owners.py` adds Telegram ownership, and `0011_portfolio_scoped_discovered_channels.py` scopes unbound Web channel discoveries to their portfolio. `initialize_database()` can seed desktop/development portfolios or initialize an empty public tenant database.
 
 ## Analytics
 

@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    environment:
+      HJKSELL_MINI_APP_BOT_TOKEN_FILE: /run/secrets/mini_app_bot_token
+      HJKSELL_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/token_encryption_key
+    secrets:
+      - mini_app_bot_token
+      - token_encryption_key
+    volumes:
+      - ${HJKSELL_HOST_DATA_DIR:?Set HJKSELL_HOST_DATA_DIR in .env}:/data
+    expose:
+      - "8765"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - from urllib.request import urlopen; urlopen('http://127.0.0.1:8765/api/health', timeout=3)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+secrets:
+  mini_app_bot_token:
+    file: ${HJKSELL_BOT_TOKEN_FILE:?Set HJKSELL_BOT_TOKEN_FILE in .env}
+  token_encryption_key:
+    file: ${HJKSELL_ENCRYPTION_KEY_FILE:?Set HJKSELL_ENCRYPTION_KEY_FILE in .env}
+
+volumes:
+  caddy_data:
+  caddy_config:

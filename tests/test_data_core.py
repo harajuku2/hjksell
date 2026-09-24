@@ -10,7 +10,11 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from hjksell.database.models import Base, Item, ItemStatus
-from hjksell.database.migrations import _ensure_legacy_monthly_income_columns
+from hjksell.database.migrations import (
+    _ensure_legacy_automatic_expense_columns,
+    _ensure_legacy_item_expense_column,
+    _ensure_legacy_monthly_income_columns,
+)
 from hjksell.repositories.item_repository import ItemRepository
 from hjksell.repositories.portfolio_repository import PortfolioRepository
 from hjksell.services.analytics import AnalyticsService
@@ -75,6 +79,14 @@ def test_cost_profit_x_and_roi() -> None:
     assert calculate_roi(Decimal("300"), cost) == Decimal("135.29")
 
 
+def test_purchase_expense_is_included_in_item_cost_and_metrics() -> None:
+    cost = calculate_cost(Decimal("150"), Decimal("0.8500"), Decimal("10"))
+    assert cost == Decimal("136.00")
+    assert calculate_profit(Decimal("300"), cost) == Decimal("164.00")
+    assert calculate_x(Decimal("300"), cost) == Decimal("2.21")
+    assert calculate_roi(Decimal("300"), cost) == Decimal("120.59")
+
+
 def test_roi_multiples() -> None:
     assert calculate_roi(Decimal("100"), Decimal("100")) == Decimal("0.00")
     assert calculate_roi(Decimal("200"), Decimal("100")) == Decimal("100.00")
@@ -100,7 +112,7 @@ def test_unsold_item_metrics_are_none() -> None:
     assert metrics.roi is None
 
 
-def test_month_of_purchase_is_separate_from_month_of_sale(session: Session, portfolios) -> None:
+def test_catalog_month_metrics_follow_the_purchase_cohort(session: Session, portfolios) -> None:
     my_portfolio, _ = portfolios
     add_item(session, my_portfolio.id, sale_price="250", sale_date=date(2026, 9, 10))
     repository = ItemRepository(session)
@@ -108,20 +120,29 @@ def test_month_of_purchase_is_separate_from_month_of_sale(session: Session, port
     september = AnalyticsService(repository).monthly_metrics(my_portfolio.id, 2026, 9)
     assert august.invested == Decimal("85.00")
     assert august.purchased_count == 1
-    assert august.revenue == Decimal("0.00")
-    assert september.revenue == Decimal("250.00")
-    assert september.sold_count == 1
-    assert september.realized_profit == Decimal("165.00")
+    assert august.revenue == Decimal("250.00")
+    assert august.sold_count == 1
+    assert august.realized_profit == Decimal("165.00")
+    assert september.revenue == Decimal("0.00")
+    assert september.sold_count == 0
 
 
 def test_monthly_expenses_and_net_profit(session: Session, portfolios) -> None:
     my_portfolio, _ = portfolios
-    add_item(session, my_portfolio.id, sale_price="250", sale_date=date(2026, 9, 10))
+    add_item(
+        session,
+        my_portfolio.id,
+        purchase_date=date(2026, 9, 1),
+        sale_price="250",
+        sale_date=date(2026, 9, 10),
+    )
     repository = ItemRepository(session)
     repository.set_monthly_expense(my_portfolio.id, 2026, 9, Decimal("20.00"))
     metrics = AnalyticsService(repository).monthly_metrics(my_portfolio.id, 2026, 9)
     assert metrics.expenses == Decimal("20.00")
     assert metrics.net_profit == Decimal("145.00")
+    assert metrics.total_profit == Decimal("145.00")
+    assert metrics.roi == Decimal("270.59")
     assert metrics.roi_after_expenses == Decimal("170.59")
 
 
@@ -149,20 +170,88 @@ def test_legacy_monthly_expense_table_gets_zero_income_columns() -> None:
     assert {"other_income_byn", "advertising_byn"} <= columns
 
 
+def test_legacy_items_get_a_zero_purchase_expense_column() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE items DROP COLUMN purchase_expense")
+    _ensure_legacy_item_expense_column(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("items")}
+    assert "purchase_expense" in columns
+
+
+def test_legacy_portfolio_settings_get_automatic_expense_columns() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "ALTER TABLE portfolio_currency_settings DROP COLUMN automatic_expense_purchase_rate"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE portfolio_currency_settings DROP COLUMN automatic_expense_currency"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE portfolio_currency_settings DROP COLUMN automatic_expense_amount"
+        )
+    _ensure_legacy_automatic_expense_columns(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("portfolio_currency_settings")}
+    assert {
+        "automatic_expense_amount",
+        "automatic_expense_currency",
+        "automatic_expense_purchase_rate",
+    } <= columns
+
+
 def test_monthly_income_formulas_keep_item_metrics_separate(session: Session, portfolios) -> None:
     my_portfolio, _ = portfolios
-    add_item(session, my_portfolio.id, price="470.5882", rate="0.8500", sale_price="1000", sale_date=date(2026, 9, 10))
+    add_item(
+        session,
+        my_portfolio.id,
+        purchase_date=date(2026, 9, 1),
+        price="470.5882",
+        rate="0.8500",
+        sale_price="1000",
+        sale_date=date(2026, 9, 10),
+    )
     repository = ItemRepository(session)
     repository.set_monthly_expense(my_portfolio.id, 2026, 9, Decimal("100"))
     repository.set_monthly_other_income(my_portfolio.id, 2026, 9, Decimal("150"))
     repository.set_monthly_advertising(my_portfolio.id, 2026, 9, Decimal("50"))
 
     metrics = AnalyticsService(repository).monthly_metrics(my_portfolio.id, 2026, 9)
-    assert metrics.revenue == Decimal("1150.00")
+    assert metrics.revenue == Decimal("1000.00")
     assert metrics.realized_profit == Decimal("600.00")
     assert metrics.net_profit == Decimal("700.00")
+    assert metrics.total_profit == Decimal("700.00")
+    assert metrics.roi == Decimal("275.00")
+    assert metrics.roi_after_expenses == Decimal("125.00")
     assert metrics.sold_count == 1
     assert metrics.average_x == Decimal("2.50")
+
+
+def test_monthly_total_profit_and_roi_include_all_purchased_items(session: Session, portfolios) -> None:
+    my_portfolio, _ = portfolios
+    add_item(
+        session,
+        my_portfolio.id,
+        purchase_date=date(2026, 9, 2),
+        price="100",
+        rate="1",
+        sale_price="150",
+        sale_date=date(2026, 9, 10),
+    )
+    add_item(session, my_portfolio.id, purchase_date=date(2026, 9, 3), price="100", rate="1")
+    repository = ItemRepository(session)
+    repository.set_monthly_other_income(my_portfolio.id, 2026, 9, Decimal("10"))
+    repository.set_monthly_advertising(my_portfolio.id, 2026, 9, Decimal("5"))
+    repository.set_monthly_expense(my_portfolio.id, 2026, 9, Decimal("20"))
+
+    metrics = AnalyticsService(repository).monthly_metrics(my_portfolio.id, 2026, 9)
+
+    assert metrics.realized_profit == Decimal("50.00")
+    assert metrics.net_profit == Decimal("45.00")
+    assert metrics.total_profit == Decimal("-55.00")
+    assert metrics.roi == Decimal("72.50")
 
 
 def test_portfolios_are_independent(session: Session, portfolios) -> None:

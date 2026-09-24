@@ -7,7 +7,8 @@ from hjksell.config import get_app_paths
 from hjksell.database.models import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", f"sqlite:///{get_app_paths().database.as_posix()}")
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{get_app_paths().database.as_posix()}")
 target_metadata = Base.metadata
 
 

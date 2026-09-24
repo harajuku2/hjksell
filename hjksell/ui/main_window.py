@@ -733,9 +733,9 @@ class MainWindow(QMainWindow):
         stats_row.setContentsMargins(14, 12, 14, 12)
         stats_row.setSpacing(4)
         for value, label in (
-            (f"{metrics.invested:.2f} BYN", "ВЛОЖЕНО"),
+            (f"{metrics.invested:.2f} BYN", "ЗАКУПЛЕННЫЕ ВЕЩИ НА"),
             (str(metrics.purchased_count), "КУПЛЕНО"),
-            (f"{metrics.revenue:.2f} BYN", "ПРОДАЖИ"),
+            (f"{metrics.revenue:.2f} BYN", "ПРОДАНО ВЕЩЕЙ НА"),
             (str(metrics.sold_count), "ПРОДАНО"),
             ("—" if metrics.average_x is None else f"{metrics.average_x:.2f}x", "СРЕДНИЙ X"),
             ("—" if metrics.roi is None else f"{metrics.roi:+.2f}%", "ROI"),
@@ -753,15 +753,20 @@ class MainWindow(QMainWindow):
                 )
             stats_row.addWidget(block)
         stats_row.addStretch()
-        net_value = QLabel(f"{metrics.net_profit:+.2f} BYN")
-        net_value.setObjectName("catalogHeroValue")
-        net_value.setProperty("tone", "positive" if metrics.net_profit > 0 else "negative" if metrics.net_profit < 0 else "neutral")
-        net_label = QLabel("ЧИСТАЯ ПРИБЫЛЬ")
-        net_label.setObjectName("metricLabel")
-        net_column = QVBoxLayout()
-        net_column.addWidget(net_value)
-        net_column.addWidget(net_label)
-        stats_row.addLayout(net_column)
+        profit_column = QVBoxLayout()
+        profit_column.setSpacing(6)
+        for value, label in (
+            (metrics.realized_profit, "ЧИСТАЯ ПРИБЫЛЬ С ПРОДАННЫХ ВЕЩЕЙ"),
+            (metrics.total_profit, "ОБЩАЯ ПРИБЫЛЬ"),
+        ):
+            profit_value = QLabel(f"{value:+.2f} BYN")
+            profit_value.setObjectName("catalogHeroValue")
+            profit_value.setProperty("tone", "positive" if value > 0 else "negative" if value < 0 else "neutral")
+            profit_label = QLabel(label)
+            profit_label.setObjectName("metricLabel")
+            profit_column.addWidget(profit_value)
+            profit_column.addWidget(profit_label)
+        stats_row.addLayout(profit_column)
         outer.addWidget(stats_surface)
         expense_row = QHBoxLayout()
         for label, value, object_name, tooltip in (
@@ -951,10 +956,13 @@ class MainWindow(QMainWindow):
         menu_button.setText("...")
         menu_button.setObjectName("itemMenu")
         menu = QMenu(menu_button)
+        purchase_expense = QAction("Добавить расход…", menu)
+        purchase_expense.triggered.connect(lambda _checked=False, current=item: self._edit_purchase_expense(current))
         replace = QAction("Заменить фото", menu)
         replace.triggered.connect(lambda _checked=False, current=item: self._replace_photo(current))
         delete = QAction("Удалить", menu)
         delete.triggered.connect(lambda _checked=False, current=item: self._delete_item(current))
+        menu.addAction(purchase_expense)
         menu.addAction(replace)
         menu.addAction(delete)
         menu_button.setMenu(menu)
@@ -1030,6 +1038,31 @@ class MainWindow(QMainWindow):
             self.refresh()
         except ValueError as exc:
             QMessageBox.warning(self, "Фото", str(exc))
+
+    def _edit_purchase_expense(self, item: Item) -> None:
+        initial = "" if item.purchase_expense == 0 else f"{item.purchase_expense:.2f}"
+        value, accepted = QInputDialog.getText(
+            self,
+            "Добавить расход",
+            f"Расход, {item.purchase_currency} (пусто = удалить):",
+            QLineEdit.EchoMode.Normal,
+            initial,
+        )
+        if not accepted:
+            return
+        try:
+            with self.session_factory() as session:
+                current = ItemRepository(session).get(item.id, self.current_portfolio_id)
+                if current is None:
+                    raise ValueError("Вещь больше недоступна.")
+                ItemService(ItemRepository(session), SettingsRepository(session)).update_purchase_details(
+                    current,
+                    purchase_expense_text=value,
+                )
+                session.commit()
+            self.refresh()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Добавить расход", str(exc))
 
     def _delete_item(self, item: Item) -> None:
         answer = QMessageBox.question(

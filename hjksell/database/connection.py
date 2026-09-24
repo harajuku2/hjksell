@@ -31,8 +31,13 @@ def create_session_factory(database_path: Path):
     return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 
-def initialize_database(paths: AppPaths | None = None) -> tuple[Engine, Callable[[], Session]]:
-    """Create the local schema and seed the two required portfolios."""
+def initialize_database(
+    paths: AppPaths | None = None,
+    *,
+    seed_default_portfolios: bool = True,
+    session_info: dict | None = None,
+) -> tuple[Engine, Callable[[], Session]]:
+    """Create the schema and optionally seed desktop/development portfolios."""
 
     resolved_paths = ensure_app_directories(paths)
     engine = create_engine_for_path(resolved_paths.database)
@@ -42,11 +47,12 @@ def initialize_database(paths: AppPaths | None = None) -> tuple[Engine, Callable
     else:
         Base.metadata.create_all(engine)
         upgrade_database(engine, resolved_paths)
-    factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+    factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False, info=session_info or {})
 
     from ..repositories.portfolio_repository import PortfolioRepository
 
-    with factory() as session:
-        PortfolioRepository(session).ensure_default_portfolios()
-        session.commit()
+    if seed_default_portfolios:
+        with factory() as session:
+            PortfolioRepository(session).ensure_default_portfolios()
+            session.commit()
     return engine, factory

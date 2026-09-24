@@ -69,7 +69,13 @@ class WebTelegramManager:
                 return
 
             api = TelegramApiClient(token)
-            importer = TelegramImportService(self.session_factory, self.photo_service, api, portfolio_id)
+            importer = TelegramImportService(
+                self.session_factory,
+                self.photo_service,
+                api,
+                portfolio_id,
+                scope_discoveries=True,
+            )
             worker = TelegramWorker(importer, interval_seconds=50.0)
             thread = threading.Thread(
                 target=worker.run,
@@ -87,8 +93,11 @@ class WebTelegramManager:
         with self.session_factory() as session:
             repository = TelegramRepository(session)
             token = repository.token(portfolio_id)
-            channels = [channel for channel in repository.channels() if channel.portfolio_id == portfolio_id]
-            discovered = repository.discovered_channels() if token else []
+            channels = [
+                channel for channel in repository.channels()
+                if channel.portfolio_id == portfolio_id and channel.is_bound
+            ]
+            discovered = repository.discovered_channels(portfolio_id) if token else []
             offset = repository.offset(portfolio_id)
         with self._lock:
             poller = self._pollers.get(portfolio_id)

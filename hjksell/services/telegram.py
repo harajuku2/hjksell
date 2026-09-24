@@ -183,11 +183,14 @@ class TelegramImportService:
         photo_service: PhotoStorage,
         api: TelegramApiClient,
         portfolio_id: int = 1,
+        *,
+        scope_discoveries: bool = False,
     ) -> None:
         self.session_factory = session_factory
         self.photo_service = photo_service
         self.api = api
         self.portfolio_id = portfolio_id
+        self.scope_discoveries = scope_discoveries
         self.diagnostics: list[ImportDiagnostic] = []
         self.discovered_channels: list[tuple[str, str | None]] = []
 
@@ -222,10 +225,14 @@ class TelegramImportService:
                     self._diagnostic(result)
                     return result
                 channel = telegram.channel(parsed.channel_id, self.portfolio_id)
-                if channel is None or channel.portfolio_id is None:
+                if channel is None or not channel.is_bound or channel.portfolio_id is None:
                     if (parsed.channel_id, parsed.title) not in self.discovered_channels:
                         self.discovered_channels.append((parsed.channel_id, parsed.title))
-                    telegram.record_discovered_channel(parsed.channel_id, parsed.title)
+                    telegram.record_discovered_channel(
+                        parsed.channel_id,
+                        parsed.title,
+                        self.portfolio_id if self.scope_discoveries else None,
+                    )
                     telegram.record_diagnostic(
                         parsed.update_id,
                         "ignored",

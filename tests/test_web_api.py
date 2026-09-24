@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -69,7 +70,11 @@ def test_health_and_portfolio_listing_do_not_expose_telegram_state(web_client) -
     client, _app, _paths = web_client
     health = client.get("/api/health")
     assert health.status_code == 200
-    assert health.json() == {"status": "ok", "data_scope": "isolated-web-development"}
+    assert health.json() == {
+        "status": "ok",
+        "data_scope": "isolated-web-development",
+        "data_deletion_enabled": False,
+    }
     portfolios = client.get("/api/portfolios").json()
     assert len(portfolios) == 2
     assert all(set(portfolio) == {"id", "name"} for portfolio in portfolios)
@@ -165,10 +170,14 @@ def test_analytics_endpoint_uses_portfolio_scoped_core_metrics(web_client) -> No
     assert response.status_code == 200, response.text
     report = response.json()
     assert report["period"] == {"start": "2026-09-01", "end": "2026-09-30"}
-    assert report["metrics"]["revenue"] == "210.00"
+    assert report["metrics"]["revenue"] == "200.00"
     assert report["metrics"]["realized_profit"] == "100.00"
     assert report["metrics"]["net_profit"] == "85.00"
     assert report["metrics"]["sold_count"] == 1
+
+    month = selected_month(client, portfolio_id)
+    assert month["metrics"]["realized_profit"] == "100.00"
+    assert month["metrics"]["total_profit"] == "85.00"
 
     other = client.get("/api/analytics", params={"portfolio_id": other_id}).json()
     assert other["metrics"]["revenue"] == "0.00"
@@ -259,6 +268,129 @@ def test_historical_fx_is_preserved_and_money_stays_string_serialized(web_client
     assert isinstance(first["cost_byn"], str)
 
 
+def test_portfolio_currency_profile_applies_only_to_new_items(web_client) -> None:
+    client, _app, _paths = web_client
+    portfolio_id, other_id = portfolio_ids(client)
+
+    initial = client.get("/api/settings/currencies", params={"portfolio_id": portfolio_id})
+    assert initial.json() == {
+        "portfolio_id": portfolio_id,
+        "purchase_currency": "PLN",
+        "sale_currency": "BYN",
+        "exchange_rate": "0.8500",
+    }
+    changed = client.put(
+        "/api/settings/currencies",
+        json={
+            "portfolio_id": portfolio_id,
+            "purchase_currency": "CNY",
+            "sale_currency": "USD",
+            "rate": "0.1390",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    first = create_item(client, portfolio_id, "100")
+    assert first["purchase_currency"] == "CNY"
+    assert first["sale_currency"] == "USD"
+    assert first["exchange_rate"] == "0.1390"
+    assert first["cost_byn"] == "13.90"
+
+    purchase_change = client.put(
+        "/api/settings/currencies",
+        json={
+            "portfolio_id": portfolio_id,
+            "purchase_currency": "EUR",
+            "sale_currency": "USD",
+            "rate": "1.2500",
+        },
+    )
+    assert purchase_change.status_code == 200, purchase_change.text
+    second = create_item(client, portfolio_id, "10")
+    assert second["purchase_currency"] == "EUR"
+    assert second["sale_currency"] == "USD"
+    assert second["cost_byn"] == "12.50"
+
+    old_item = next(item for item in selected_month(client, portfolio_id)["items"] if item["id"] == first["id"])
+    assert old_item["purchase_currency"] == "CNY"
+    assert old_item["sale_currency"] == "USD"
+    assert old_item["exchange_rate"] == "0.1390"
+    assert client.get("/api/settings/currencies", params={"portfolio_id": other_id}).json()["purchase_currency"] == "PLN"
+
+    mixed_sale_currency = client.put(
+        "/api/settings/currencies",
+        json={
+            "portfolio_id": portfolio_id,
+            "purchase_currency": "EUR",
+            "sale_currency": "EUR",
+            "rate": "1.0000",
+        },
+    )
+    assert mixed_sale_currency.status_code == 422
+    assert "пустом портфеле" in mixed_sale_currency.json()["detail"]
+
+
+def test_automatic_expense_applies_only_to_new_items_and_uses_a_saved_cross_rate(web_client, monkeypatch) -> None:
+    client, _app, _paths = web_client
+    portfolio_id = portfolio_ids(client)[0]
+    before = create_item(client, portfolio_id, "100")
+
+    class FakeRateService:
+        def latest(self, source: str, target: str):
+            assert (source, target) == ("USD", "PLN")
+            return Decimal("3.5000"), date(2026, 9, 21)
+
+    monkeypatch.setattr("hjksell.web.app.OfficialExchangeRateService", FakeRateService)
+    saved = client.put(
+        "/api/settings/automatic-expense",
+        json={"portfolio_id": portfolio_id, "amount": "1", "expense_currency": "USD"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {
+        "portfolio_id": portfolio_id,
+        "amount": "1.00",
+        "expense_currency": "USD",
+        "purchase_currency": "PLN",
+        "purchase_rate": "3.5000",
+    }
+
+    after = create_item(client, portfolio_id, "100")
+    assert before["purchase_expense"] == "0.00"
+    assert before["cost_byn"] == "85.00"
+    assert after["purchase_expense"] == "3.50"
+    assert after["cost_byn"] == "87.98"
+
+    manual = client.put(
+        f"/api/items/{after['id']}",
+        json={"portfolio_id": portfolio_id, "purchase_expense": "5"},
+    )
+    assert manual.status_code == 200, manual.text
+    assert manual.json()["purchase_expense"] == "5.00"
+    assert manual.json()["cost_byn"] == "89.25"
+
+
+def test_latest_exchange_rate_endpoint_uses_official_rate_service(web_client, monkeypatch) -> None:
+    client, _app, _paths = web_client
+
+    class FakeRateService:
+        def latest(self, purchase_currency: str, sale_currency: str):
+            assert (purchase_currency, sale_currency) == ("JPY", "EUR")
+            return Decimal("0.0056"), date(2026, 9, 16)
+
+    monkeypatch.setattr("hjksell.web.app.OfficialExchangeRateService", FakeRateService)
+    response = client.get(
+        "/api/exchange-rates/latest",
+        params={"purchase_currency": "JPY", "sale_currency": "EUR"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "purchase_currency": "JPY",
+        "sale_currency": "EUR",
+        "exchange_rate": "0.0056",
+        "effective_date": "2026-09-16",
+        "source": "Национальный банк Республики Беларусь",
+    }
+
+
 def test_new_manual_items_are_returned_newest_first(web_client) -> None:
     client, _app, _paths = web_client
     portfolio_id = portfolio_ids(client)[0]
@@ -322,6 +454,26 @@ def test_item_purchase_details_and_sale_date_can_be_edited(web_client) -> None:
     assert changed.json()["cost_byn"] == "18.45"
     assert changed.json()["profit"] == "81.55"
 
+    expense_added = client.put(
+        f"/api/items/{item['id']}",
+        json={"portfolio_id": portfolio_id, "purchase_expense": "10"},
+    )
+    assert expense_added.status_code == 200, expense_added.text
+    assert expense_added.json()["purchase_expense"] == "10.00"
+    assert expense_added.json()["cost_byn"] == "27.45"
+    assert expense_added.json()["profit"] == "72.55"
+    assert expense_added.json()["x"] == "3.64"
+    assert expense_added.json()["roi"] == "264.30"
+
+    expense_cleared = client.put(
+        f"/api/items/{item['id']}",
+        json={"portfolio_id": portfolio_id, "purchase_expense": ""},
+    )
+    assert expense_cleared.status_code == 200, expense_cleared.text
+    assert expense_cleared.json()["purchase_expense"] == "0.00"
+    assert expense_cleared.json()["cost_byn"] == "18.45"
+    assert expense_cleared.json()["profit"] == "81.55"
+
     sale_date = client.put(
         f"/api/items/{item['id']}/sale-date",
         json={"portfolio_id": portfolio_id, "sale_date": "2026-09-12"},
@@ -354,7 +506,7 @@ def test_monthly_values_and_metrics_are_isolated_by_portfolio_and_month(web_clie
     august = selected_month(client, first_portfolio, month=8)
     other_portfolio = selected_month(client, second_portfolio)
     assert september["values"] == {"expenses": "10.00", "other_income": "25.00", "advertising": "5.00"}
-    assert september["metrics"]["revenue"] == "25.00"
+    assert september["metrics"]["revenue"] == "0.00"
     assert september["metrics"]["net_profit"] == "20.00"
     assert august["values"] == {"expenses": "0.00", "other_income": "0.00", "advertising": "0.00"}
     assert other_portfolio["values"] == {"expenses": "0.00", "other_income": "0.00", "advertising": "0.00"}
@@ -439,7 +591,7 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     client, _app, _paths = web_client
     page = client.get("/")
     assert page.status_code == 200
-    assert page.text.index('<section class="toolbar"') < page.text.index('<div class="header-actions">')
+    assert '<div class="header-actions">' not in page.text
     assert 'id="collapsedSummary"' in page.text
     script = client.get("/app.js").text
     assert '<details class="month"' in script
@@ -451,16 +603,41 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert 'id="portfolioSelect"' in page.text
     assert 'id="createPortfolioButton"' in page.text
     assert 'id="deletePortfolioButton"' in page.text
-    assert 'id="analyticsButton"' in page.text
     assert 'id="analyticsView"' in page.text
+    assert 'id="telegramView"' in page.text
+    assert 'id="newItemView"' in page.text
+    assert 'id="telegramPortfolioPickerButton"' in page.text
+    assert 'id="newItemPortfolioPickerButton"' in page.text
+    assert 'id="settingsView"' in page.text
+    assert 'id="automaticExpenseForm"' in page.text
+    assert 'id="automaticExpensePortfolioPickerButton"' in page.text
     assert 'id="portfolioPickerButton"' in page.text
     assert 'id="analyticsPickerButton"' in page.text
+    assert 'id="analyticsPortfolioPickerButton"' in page.text
+    assert 'id="analyticsPortfolioSelect"' in page.text
     assert "analyticsGroups" in script
-    assert "ПРИБЫЛЬ ДО РАСХОДОВ" in script
+    assert "ПРИБЫЛЬ С ПРОДАЖ" in script
+    assert 'id="mobileCatalogTab"' in page.text
+    assert 'id="mobileAnalyticsTab"' in page.text
+    assert 'id="mobileTelegramTab"' in page.text
+    assert 'id="mobileNewItemTab"' in page.text
+    assert 'id="mobileSettingsTab"' in page.text
+    assert 'id="scrollTopButton"' in page.text
+    assert 'id="currencyPanelClose"' in page.text
     assert "lastAnalyticsFingerprint" in script
     assert "renderGlassSelect" in script
-    assert "surface-reveal" in client.get("/styles.css").text
-    assert "catalog-dragon-reference-v3.png" in client.get("/styles.css").text
+    assert 'menu.classList.add("currency-option-menu")' not in script
+    styles_response = client.get("/styles.css")
+    assert styles_response.headers["cache-control"] == "no-store"
+    assert "surface-reveal" in styles_response.text
+    styles = styles_response.text
+    assert ".currency-option-menu" in styles
+    assert ".currency-select { position: static; }" in styles
+    assert "Mobile pickers keep the compact catalog-menu scale" in styles
+    assert "currency-menu-close + button[data-value]" in styles
+    assert "catalog-user-backdrop.jpg" in styles
+    assert "background: #0d0f14" in styles
+    assert "background: #11131a" in styles
     assert "lastCatalogFingerprint" in script
     assert 'id="photoViewer"' in page.text
     assert 'data-action="view-photo"' in script
@@ -473,12 +650,26 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert "openItemMenuId" in script
     assert "item-content" in script
     assert "collapsedSummaryHtml" in script
-    assert '[metrics.invested, "ВЛОЖЕНО", " BYN"]' in script
+    assert "function orderMonthGroups" in script
+    assert "const defaultOpen = false" in script
+    assert "currentMonth.after(collapsedSummary)" in script
+    assert '[metrics.invested, "ВЛОЖЕНО", moneySuffix()]' in script
     assert "summary-kpi-profit" in script
     assert "updateCollapsedSummaryVisibility" in script
     assert "collapsedSummary.hidden = month.open" in script
     assert "data-action=\"edit-item-field\"" in script
     assert "function metricClass" in script
+    assert "item-profit-cell" in script
+    assert "scrollToCatalogTop" in script
+    assert "updateScrollTopButton" in script
+    assert "analyticsPortfolioPickerMenu" in script
+    assert "telegramPortfolioPickerMenu" in script
+    assert "newItemPortfolioPickerMenu" in script
+    assert 'setView("telegram")' in script
+    assert 'setView("new-item")' in script
+    assert 'setView("settings")' in script
+    assert "rateInput.focus()" not in script
+    assert "purchase_price_pln\"]').focus()" not in script
     assert "status-${item.sale_state}" in script
     assert "УШЛА НА БЛАГОЕ ДЕЛО" in script
     assert "/sale-date" in script
@@ -489,6 +680,27 @@ def test_static_catalog_uses_month_details_as_single_collapse_boundary(web_clien
     assert "telegramPollButton" not in script
     assert "refreshButton" not in client.get("/").text
     assert "Проверить сейчас" not in client.get("/").text
+    assert ".scroll-top-button" in styles
+    assert "background: #121314" in styles
+    assert "background: #0c0d0f" in styles
+    assert "grid-column: 1 / -1" in styles
+    assert "grid-row: 5" in styles
+    assert "inline-size: 100%" in styles
+    assert "date-input-shell" in page.text
+    assert ".new-item form .date-input-shell input[type=\"date\"]::-webkit-date-and-time-value" in styles
+    assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in styles
+    assert "currency-menu-close" in styles
+    assert "function closeCurrencyPanel" in script
+    assert "Currency names stay connected to the compact currency surface" in styles
+    assert "overflow-x: hidden" in styles
+    assert ".telegram-active .page-header" in styles
+    assert "z-index: 50" in styles
+    assert "Desktop analytics keeps both selectors inside the heading" in styles
+    assert "Добавить расход" in script
+    assert "purchase_expense" in script
+    assert "/api/settings/automatic-expense" in script
+    assert "automaticExpensePortfolioPickerMenu" in script
+    assert ".settings-panel" in styles
 
 
 def test_web_fonts_are_served_with_a_font_mime_type(web_client) -> None:

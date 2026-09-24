@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily encrypted HJKsell off-site backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=20m
+Unit=hjksell-backup.service
+
+[Install]
+WantedBy=timers.target

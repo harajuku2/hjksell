@@ -6,6 +6,9 @@ const state = {
   telegramChannelDirty: false,
   rateDraft: null,
   rateDirty: false,
+  purchaseCurrency: "PLN",
+  saleCurrency: "BYN",
+  automaticExpensePortfolioId: null,
   openItemMenuId: null,
   view: "catalog"
 };
@@ -22,14 +25,45 @@ const portfolioSelect = document.querySelector("#portfolioSelect");
 const photoViewer = document.querySelector("#photoViewer");
 const photoViewerImage = document.querySelector("#photoViewerImage");
 const rateInput = document.querySelector("#rateInput");
+const ratePairLabel = document.querySelector("#ratePairLabel");
+const latestRateButton = document.querySelector("#latestRateButton");
+const currencyPanelButton = document.querySelector("#currencyPanelButton");
+const currencyPanel = document.querySelector("#currencyPanel");
+const currencyPanelClose = document.querySelector("#currencyPanelClose");
+const purchaseCurrencySelect = document.querySelector("#purchaseCurrencySelect");
+const purchaseCurrencyPickerButton = document.querySelector("#purchaseCurrencyPickerButton");
+const purchaseCurrencyPickerLabel = document.querySelector("#purchaseCurrencyPickerLabel");
+const purchaseCurrencyPickerMenu = document.querySelector("#purchaseCurrencyPickerMenu");
+const saleCurrencySelect = document.querySelector("#saleCurrencySelect");
+const saleCurrencyPickerButton = document.querySelector("#saleCurrencyPickerButton");
+const saleCurrencyPickerLabel = document.querySelector("#saleCurrencyPickerLabel");
+const saleCurrencyPickerMenu = document.querySelector("#saleCurrencyPickerMenu");
+const itemPurchasePriceLabel = document.querySelector("#itemPurchasePriceLabel");
 const message = document.querySelector("#message");
 const catalogRoot = document.querySelector("#catalog");
 const filters = document.querySelector("#filters");
 const collapsedSummary = document.querySelector("#collapsedSummary");
-const addItemButton = document.querySelector("#addItemButton");
 const newItemPanel = document.querySelector("#newItemPanel");
-const telegramButton = document.querySelector("#telegramButton");
+const newItemPortfolioSelect = document.querySelector("#newItemPortfolioSelect");
+const newItemPortfolioPickerButton = document.querySelector("#newItemPortfolioPickerButton");
+const newItemPortfolioPickerLabel = document.querySelector("#newItemPortfolioPickerLabel");
+const newItemPortfolioPickerMenu = document.querySelector("#newItemPortfolioPickerMenu");
+const automaticExpenseForm = document.querySelector("#automaticExpenseForm");
+const automaticExpensePortfolioSelect = document.querySelector("#automaticExpensePortfolioSelect");
+const automaticExpensePortfolioPickerButton = document.querySelector("#automaticExpensePortfolioPickerButton");
+const automaticExpensePortfolioPickerLabel = document.querySelector("#automaticExpensePortfolioPickerLabel");
+const automaticExpensePortfolioPickerMenu = document.querySelector("#automaticExpensePortfolioPickerMenu");
+const automaticExpenseAmount = document.querySelector("#automaticExpenseAmount");
+const automaticExpenseCurrencySelect = document.querySelector("#automaticExpenseCurrencySelect");
+const automaticExpenseCurrencyPickerButton = document.querySelector("#automaticExpenseCurrencyPickerButton");
+const automaticExpenseCurrencyPickerLabel = document.querySelector("#automaticExpenseCurrencyPickerLabel");
+const automaticExpenseCurrencyPickerMenu = document.querySelector("#automaticExpenseCurrencyPickerMenu");
+const automaticExpenseHint = document.querySelector("#automaticExpenseHint");
 const telegramPanel = document.querySelector("#telegramPanel");
+const telegramPortfolioSelect = document.querySelector("#telegramPortfolioSelect");
+const telegramPortfolioPickerButton = document.querySelector("#telegramPortfolioPickerButton");
+const telegramPortfolioPickerLabel = document.querySelector("#telegramPortfolioPickerLabel");
+const telegramPortfolioPickerMenu = document.querySelector("#telegramPortfolioPickerMenu");
 const telegramForm = document.querySelector("#telegramForm");
 const telegramToken = document.querySelector("#telegramToken");
 const telegramChannel = document.querySelector("#telegramChannel");
@@ -43,9 +77,19 @@ const createPortfolioButton = document.querySelector("#createPortfolioButton");
 const createPortfolioForm = document.querySelector("#createPortfolioForm");
 const newPortfolioNameInput = document.querySelector("#newPortfolioNameInput");
 const deletePortfolioButton = document.querySelector("#deletePortfolioButton");
-const analyticsButton = document.querySelector("#analyticsButton");
+const deleteMyDataButton = document.querySelector("#deleteMyDataButton");
+const mobileCatalogTab = document.querySelector("#mobileCatalogTab");
+const mobileAnalyticsTab = document.querySelector("#mobileAnalyticsTab");
+const mobileTelegramTab = document.querySelector("#mobileTelegramTab");
+const mobileNewItemTab = document.querySelector("#mobileNewItemTab");
+const mobileSettingsTab = document.querySelector("#mobileSettingsTab");
+const scrollTopButton = document.querySelector("#scrollTopButton");
 const catalogView = document.querySelector("#catalogView");
 const analyticsView = document.querySelector("#analyticsView");
+const telegramView = document.querySelector("#telegramView");
+const newItemView = document.querySelector("#newItemView");
+const settingsView = document.querySelector("#settingsView");
+const deleteMyDataPanel = document.querySelector("#deleteMyDataPanel");
 const analyticsPeriod = document.querySelector("#analyticsPeriod");
 const analyticsPeriodRange = document.querySelector("#analyticsPeriodRange");
 const analyticsSections = document.querySelector("#analyticsSections");
@@ -57,6 +101,11 @@ const analyticsPicker = document.querySelector("#analyticsPicker");
 const analyticsPickerButton = document.querySelector("#analyticsPickerButton");
 const analyticsPickerLabel = document.querySelector("#analyticsPickerLabel");
 const analyticsPickerMenu = document.querySelector("#analyticsPickerMenu");
+const analyticsPortfolioSelect = document.querySelector("#analyticsPortfolioSelect");
+const analyticsPortfolioPicker = document.querySelector("#analyticsPortfolioPicker");
+const analyticsPortfolioPickerButton = document.querySelector("#analyticsPortfolioPickerButton");
+const analyticsPortfolioPickerLabel = document.querySelector("#analyticsPortfolioPickerLabel");
+const analyticsPortfolioPickerMenu = document.querySelector("#analyticsPortfolioPickerMenu");
 
 function escapeHtml(value) {
   return String(value)
@@ -68,7 +117,10 @@ function escapeHtml(value) {
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, options);
+  const headers = new Headers(options.headers || {});
+  const initData = window.Telegram?.WebApp?.initData;
+  if (initData) headers.set("X-Telegram-Init-Data", initData);
+  const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
   if (!response.ok) {
     let detail = `Ошибка ${response.status}`;
     try {
@@ -99,6 +151,13 @@ function display(value, suffix = "") {
 }
 
 function animateVisibility(element, show, onClosed = null) {
+  if (element.classList.contains("instant-surface")) {
+    element.classList.remove("surface-exit", "surface-enter");
+    element.hidden = !show;
+    if (!show) onClosed?.();
+    return;
+  }
+
   if (show) {
     element.hidden = false;
     element.classList.remove("surface-exit", "surface-enter");
@@ -122,7 +181,14 @@ function animateVisibility(element, show, onClosed = null) {
 function closeGlassSelects() {
   [
     [portfolioPickerButton, portfolioPickerMenu],
-    [analyticsPickerButton, analyticsPickerMenu]
+    [analyticsPickerButton, analyticsPickerMenu],
+    [analyticsPortfolioPickerButton, analyticsPortfolioPickerMenu],
+    [telegramPortfolioPickerButton, telegramPortfolioPickerMenu],
+    [newItemPortfolioPickerButton, newItemPortfolioPickerMenu],
+    [automaticExpensePortfolioPickerButton, automaticExpensePortfolioPickerMenu],
+    [automaticExpenseCurrencyPickerButton, automaticExpenseCurrencyPickerMenu],
+    [purchaseCurrencyPickerButton, purchaseCurrencyPickerMenu],
+    [saleCurrencyPickerButton, saleCurrencyPickerMenu]
   ].forEach(([button, menu]) => {
     button.setAttribute("aria-expanded", "false");
     animateVisibility(menu, false);
@@ -132,10 +198,14 @@ function closeGlassSelects() {
 function renderGlassSelect(select, label, menu) {
   const selected = select.selectedOptions[0];
   label.textContent = selected?.textContent || "Выберите";
-  menu.innerHTML = [...select.options].map((option) => `
+  const isCurrencyMenu = menu.id === "purchaseCurrencyPickerMenu" || menu.id === "saleCurrencyPickerMenu";
+  const closeButton = isCurrencyMenu
+    ? '<button class="currency-menu-close" type="button" data-action="close-currency-menu" aria-label="Закрыть выбор валют">×</button>'
+    : "";
+  menu.innerHTML = `${closeButton}${[...select.options].map((option) => `
     <button type="button" role="option" data-value="${escapeHtml(option.value)}" aria-selected="${option.selected}">
       ${escapeHtml(option.textContent)}
-    </button>`).join("");
+    </button>`).join("")}`;
 }
 
 function toggleGlassSelect(button, menu) {
@@ -150,6 +220,16 @@ function togglePanel(panel, button) {
   animateVisibility(panel, isOpening);
   button.setAttribute("aria-expanded", String(isOpening));
   return isOpening;
+}
+
+function moneySuffix(currency = state.saleCurrency) {
+  return ` ${currency}`;
+}
+
+function updateCurrencyLabels() {
+  ratePairLabel.textContent = `${state.purchaseCurrency} → ${state.saleCurrency}`;
+  rateInput.setAttribute("aria-label", `Курс ${state.purchaseCurrency} к ${state.saleCurrency}`);
+  itemPurchasePriceLabel.textContent = `Цена покупки, ${state.purchaseCurrency}`;
 }
 
 function catalogIsBeingEdited() {
@@ -176,15 +256,25 @@ function currentMonthGroup(months) {
     || null;
 }
 
+function orderMonthGroups(months) {
+  const today = new Date();
+  return [...months].sort((left, right) => {
+    const leftIsCurrent = left.year === today.getFullYear() && left.month === today.getMonth() + 1;
+    const rightIsCurrent = right.year === today.getFullYear() && right.month === today.getMonth() + 1;
+    if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
+    return right.year - left.year || right.month - left.month;
+  });
+}
+
 function collapsedSummaryHtml(group) {
   if (!group) return "";
   const metrics = group.metrics;
   return [
-    [metrics.invested, "ВЛОЖЕНО", " BYN"],
+    [metrics.invested, "ВЛОЖЕНО", moneySuffix()],
     [metrics.purchased_count, "КУПЛЕНО", ""],
-    [metrics.revenue, "ПРОДАЖИ", " BYN"],
+    [metrics.revenue, "ПРОДАЖИ", moneySuffix()],
     [metrics.sold_count, "ПРОДАНО", ""],
-    [metrics.net_profit, "ЧИСТАЯ ПРИБЫЛЬ", " BYN"]
+    [metrics.total_profit, "ОБЩАЯ ПРИБЫЛЬ", moneySuffix()]
   ].map(([value, label, suffix], index) =>
     `<div class="summary-kpi${index === 4 ? " summary-kpi-profit" : ""}"><strong>${display(value, suffix)}</strong><span>${label}</span></div>`
   ).join("");
@@ -197,8 +287,7 @@ function updateCollapsedSummaryVisibility(group) {
     return;
   }
   collapsedSummaryPeriod = `${group.year}-${group.month}`;
-  const defaultOpen = group.year === new Date().getFullYear() && group.month === new Date().getMonth() + 1;
-  const isOpen = monthOpenState.get(monthStateKey(collapsedSummaryPeriod)) ?? defaultOpen;
+  const isOpen = monthOpenState.get(monthStateKey(collapsedSummaryPeriod)) ?? false;
   collapsedSummary.hidden = isOpen;
 }
 
@@ -225,38 +314,38 @@ const analyticsGroups = [
     title: "РЕЗУЛЬТАТ",
     className: "analytics-result",
     metrics: [
-      ["revenue", "ПРОДАЖИ", " BYN"],
-      ["realized_profit", "ПРИБЫЛЬ ДО РАСХОДОВ", " BYN"],
-      ["net_profit", "ЧИСТАЯ ПРИБЫЛЬ", " BYN"],
-      ["expenses", "РАСХОДЫ", " BYN"],
+      ["revenue", "ПРОДАЖИ", "currency"],
+      ["realized_profit", "ПРИБЫЛЬ С ПРОДАЖ", "currency"],
+      ["expenses", "РАСХОДЫ", "currency"],
       ["sold_count", "ПРОДАНО", ""]
     ]
   },
   {
     title: "ЭФФЕКТИВНОСТЬ",
+    className: "analytics-efficiency",
     metrics: [
       ["roi", "ROI", "%"],
       ["roi_after_expenses", "ROI ПОСЛЕ РАСХОДОВ", "%"],
-      ["average_x", "СРЕДНИЙ X", "x"],
       ["best_x", "ЛУЧШИЙ X", "x"],
-      ["worst_x", "ХУДШИЙ X", "x"]
+      ["worst_x", "ХУДШИЙ X", "x"],
+      ["average_x", "СРЕДНИЙ X", "x"]
     ]
   },
   {
     title: "ЗАКУПКИ И СКЛАД",
     metrics: [
-      ["invested", "ВЛОЖЕНО", " BYN"],
+      ["invested", "ВЛОЖЕНО", "currency"],
       ["purchased_count", "КУПЛЕНО", ""],
       ["in_stock_count", "В НАЛИЧИИ", ""],
-      ["warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ", " BYN"]
+      ["warehouse_value", "СТОИМОСТЬ НА СКЛАДЕ", "currency"]
     ]
   },
   {
     title: "СРЕДНИЕ ПОКАЗАТЕЛИ",
     metrics: [
-      ["average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ", " BYN"],
-      ["average_sale", "СРЕДНЯЯ ПРОДАЖА", " BYN"],
-      ["average_profit", "СРЕДНЯЯ ПРИБЫЛЬ", " BYN"],
+      ["average_cost", "СРЕДНЯЯ СЕБЕСТОИМОСТЬ", "currency"],
+      ["average_sale", "СРЕДНЯЯ ПРОДАЖА", "currency"],
+      ["average_profit", "СРЕДНЯЯ ПРИБЫЛЬ", "currency"],
       ["average_sale_days", "СРЕДНЕЕ ВРЕМЯ ПРОДАЖИ", " дн."]
     ]
   }
@@ -276,10 +365,17 @@ function analyticsHtml(metrics) {
       <h3>${group.title}</h3>
       <div class="analytics-grid">
         ${group.metrics.map(([key, label, suffix]) => `
-          <article class="analytics-metric${key === "net_profit" ? " analytics-hero" : ""}${analyticsTone(key, metrics[key])}">
-            <strong>${display(metrics[key], suffix)}</strong>
+          <article class="analytics-metric${["net_profit", "average_x"].includes(key) ? " analytics-hero" : ""}${analyticsTone(key, metrics[key])}">
+            <strong>${display(metrics[key], suffix === "currency" ? moneySuffix() : suffix)}</strong>
             <span>${label}</span>
           </article>`).join("")}
+        ${group.className === "analytics-result" ? `
+          <article class="analytics-metric analytics-hero analytics-profit-half${analyticsTone("realized_profit", metrics.realized_profit)}">
+            <strong>${display(metrics.realized_profit, moneySuffix())}</strong><span>ЧИСТАЯ ПРИБЫЛЬ С ПРОДАННЫХ ВЕЩЕЙ</span>
+          </article>
+          <article class="analytics-metric analytics-hero analytics-profit-half${analyticsTone("total_profit", metrics.total_profit)}">
+            <strong>${display(metrics.total_profit, moneySuffix())}</strong><span>ОБЩАЯ ПРИБЫЛЬ</span>
+          </article>` : ""}
       </div>
     </section>`).join("");
 }
@@ -301,13 +397,27 @@ async function loadAnalytics(force = false) {
 async function setView(view) {
   state.view = view;
   const showAnalytics = view === "analytics";
-  catalogView.hidden = showAnalytics;
+  const showCatalog = view === "catalog";
+  const showTelegram = view === "telegram";
+  const showNewItem = view === "new-item";
+  const showSettings = view === "settings";
+  document.body.classList.toggle("analytics-active", showAnalytics);
+  document.body.classList.toggle("telegram-active", showTelegram);
+  document.body.classList.toggle("new-item-active", showNewItem);
+  document.body.classList.toggle("settings-active", showSettings);
+  catalogView.hidden = !showCatalog;
   analyticsView.hidden = !showAnalytics;
-  analyticsButton.setAttribute("aria-pressed", String(showAnalytics));
-  analyticsButton.textContent = showAnalytics ? "Каталог" : "Аналитика";
-  addItemButton.hidden = showAnalytics;
-  telegramButton.hidden = showAnalytics;
+  telegramView.hidden = !showTelegram;
+  newItemView.hidden = !showNewItem;
+  settingsView.hidden = !showSettings;
+  mobileCatalogTab.setAttribute("aria-pressed", String(showCatalog));
+  mobileAnalyticsTab.setAttribute("aria-pressed", String(showAnalytics));
+  mobileTelegramTab.setAttribute("aria-pressed", String(showTelegram));
+  mobileNewItemTab.setAttribute("aria-pressed", String(showNewItem));
+  mobileSettingsTab.setAttribute("aria-pressed", String(showSettings));
   if (showAnalytics) await loadAnalytics(true);
+  if (showTelegram) await loadTelegramStatus(true);
+  if (showSettings) await loadAutomaticExpenseSettings();
 }
 
 function itemHtml(item) {
@@ -322,24 +432,25 @@ function itemHtml(item) {
   const itemMenuOpen = state.openItemMenuId === item.id;
   const saleDate = item.sale_date || "—";
   const saleDateDisabled = item.sale_date ? "" : " disabled";
+  const purchaseExpense = item.purchase_expense === "0.00" ? "" : item.purchase_expense;
   return `
     <article class="item item-${item.sale_state}${itemMenuOpen ? " is-menu-open" : ""}" data-item-id="${item.id}">
       ${photo}
       <div class="item-content">
         <dl class="item-data">
           <div><dt>Дата покупки</dt><dd class="item-date">${escapeHtml(item.purchase_date)}</dd></div>
-          <div><dt>Покупка</dt><dd>${escapeHtml(item.purchase_price_pln)} PLN</dd></div>
-          <div><dt>Себестоимость</dt><dd class="metric-cost">${escapeHtml(item.cost_byn)} BYN</dd></div>
+          <div><dt>Покупка</dt><dd>${escapeHtml(item.purchase_price_pln)} ${escapeHtml(item.purchase_currency)}</dd></div>
+          <div><dt>Себестоимость</dt><dd class="metric-cost">${escapeHtml(item.cost_byn)} ${escapeHtml(item.sale_currency)}</dd></div>
           <div><dt>Курс</dt><dd>${escapeHtml(item.exchange_rate)}</dd></div>
           <div><dt>Статус</dt><dd class="item-status status-${item.sale_state}">${stateLabels[item.sale_state]}</dd></div>
-          <div><dt>Прибыль</dt><dd class="metric-profit ${profitClass}">${display(item.profit, " BYN")}</dd></div>
-          <div><dt>X</dt><dd class="${metricClass(item.x)}">${display(item.x, "x")}</dd></div>
           <div><dt>ROI</dt><dd class="${metricClass(item.roi)}">${display(item.roi, "%")}</dd></div>
+          <div><dt>X</dt><dd class="${metricClass(item.x)}">${display(item.x, "x")}</dd></div>
+          <div class="item-profit-cell ${profitClass}"><dt>Прибыль</dt><dd class="metric-profit ${profitClass}">${display(item.profit, moneySuffix(item.sale_currency))}</dd></div>
           <div><dt>Дней до продажи</dt><dd>${display(item.days_to_sale)}</dd></div>
         </dl>
         <div class="item-footer">
           <form data-action="sale" data-item-id="${item.id}">
-            <label>Продажа, BYN
+            <label>Продажа, ${escapeHtml(item.sale_currency)}
               <input name="sale_price_byn" inputmode="decimal" value="${escapeHtml(saleValue)}" placeholder="пусто = отменить">
             </label>
             <button type="submit">Сохранить продажу</button>
@@ -351,11 +462,19 @@ function itemHtml(item) {
         <div class="item-menu"${itemMenuOpen ? "" : " hidden"}>
           <div class="menu-fields">
             <div class="menu-field-row">
-              <div><span>Цена покупки</span><strong>${escapeHtml(item.purchase_price_pln)} PLN</strong></div>
+              <div><span>Цена покупки</span><strong>${escapeHtml(item.purchase_price_pln)} ${escapeHtml(item.purchase_currency)}</strong></div>
               <button class="menu-edit-button" type="button" data-action="edit-item-field" data-field="purchase_price_pln" title="Изменить цену покупки" aria-label="Изменить цену покупки">✎</button>
             </div>
             <form class="item-editor" data-action="item-field" data-field="purchase_price_pln" data-item-id="${item.id}" hidden>
-              <label>Цена покупки, PLN<input name="purchase_price_pln" inputmode="decimal" value="${escapeHtml(item.purchase_price_pln)}" required></label>
+              <label>Цена покупки, ${escapeHtml(item.purchase_currency)}<input name="purchase_price_pln" inputmode="decimal" value="${escapeHtml(item.purchase_price_pln)}" required></label>
+              <button type="submit">Сохранить</button>
+            </form>
+            <div class="menu-field-row">
+              <div><span>Добавить расход</span><strong>${purchaseExpense ? `${escapeHtml(purchaseExpense)} ${escapeHtml(item.purchase_currency)}` : "—"}</strong></div>
+              <button class="menu-edit-button" type="button" data-action="edit-item-field" data-field="purchase_expense" title="Изменить расход" aria-label="Изменить расход">✎</button>
+            </div>
+            <form class="item-editor" data-action="item-field" data-field="purchase_expense" data-item-id="${item.id}" hidden>
+              <label>Расход, ${escapeHtml(item.purchase_currency)}<input name="purchase_expense" inputmode="decimal" value="${escapeHtml(purchaseExpense)}" placeholder="пусто = удалить"></label>
               <button type="submit">Сохранить</button>
             </form>
             <div class="menu-field-row">
@@ -400,22 +519,26 @@ function itemHtml(item) {
 
 function monthHtml(group) {
   const metrics = group.metrics;
-  const today = new Date();
   const period = `${group.year}-${group.month}`;
-  const defaultOpen = group.year === today.getFullYear() && group.month === today.getMonth() + 1;
+  const defaultOpen = false;
   const isOpen = monthOpenState.get(monthStateKey(period)) ?? defaultOpen;
   const open = isOpen ? " open" : "";
-  const kpis = [
-    [metrics.invested, "ВЛОЖЕНО", " BYN"],
+  const primaryKpis = [
+    [metrics.invested, "ЗАКУПЛЕННЫЕ ВЕЩИ НА", moneySuffix()],
     [metrics.purchased_count, "КУПЛЕНО", ""],
-    [metrics.revenue, "ПРОДАЖИ", " BYN"],
+    [metrics.revenue, "ПРОДАНО ВЕЩЕЙ НА", moneySuffix()],
     [metrics.sold_count, "ПРОДАНО", ""],
     [metrics.average_x, "СРЕДНИЙ X", "x"],
-    [metrics.roi, "ROI", "%"],
-    [metrics.net_profit, "ЧИСТАЯ ПРИБЫЛЬ", " BYN"]
+    [metrics.roi, "ROI", "%"]
   ].map(([value, label, suffix]) =>
     `<div class="kpi"><strong>${display(value, suffix)}</strong><span>${label}</span></div>`
   ).join("");
+  const profitKpis = `
+    <div class="kpi-profit-stack">
+      <div class="profit-kpi"><strong>${display(metrics.realized_profit, moneySuffix())}</strong><span>ЧИСТАЯ ПРИБЫЛЬ С ПРОДАННЫХ ВЕЩЕЙ</span></div>
+      <div class="profit-kpi"><strong>${display(metrics.total_profit, moneySuffix())}</strong><span>ОБЩАЯ ПРИБЫЛЬ</span></div>
+    </div>`;
+  const kpis = `${primaryKpis}${profitKpis}`;
   const items = group.items.length ? group.items.map(itemHtml).join("") : `<p class="empty">Нет вещей по выбранному фильтру.</p>`;
   const monthlyKey = monthlyDraftKey(group.year, group.month);
   const monthlyDraft = monthlyDrafts.get(monthlyKey) || {};
@@ -428,9 +551,9 @@ function monthHtml(group) {
       <div class="month-body">
         <div class="kpis">${kpis}</div>
         <form class="monthly-values" data-action="monthly" data-year="${group.year}" data-month="${group.month}">
-          <label>РАСХОДЫ, BYN<input name="expenses" inputmode="decimal" value="${escapeHtml(expenses)}" required></label>
-          <label>ДРУГИЕ ДОХОДЫ, BYN<input name="other_income" inputmode="decimal" value="${escapeHtml(otherIncome)}" required></label>
-          <label>РЕКЛАМА, BYN<input name="advertising" inputmode="decimal" value="${escapeHtml(advertising)}" required></label>
+          <label>РАСХОДЫ, ${escapeHtml(state.saleCurrency)}<input name="expenses" inputmode="decimal" value="${escapeHtml(expenses)}" required></label>
+          <label>ДРУГИЕ ДОХОДЫ, ${escapeHtml(state.saleCurrency)}<input name="other_income" inputmode="decimal" value="${escapeHtml(otherIncome)}" required></label>
+          <label>РЕКЛАМА, ${escapeHtml(state.saleCurrency)}<input name="advertising" inputmode="decimal" value="${escapeHtml(advertising)}" required></label>
           <button type="submit">Сохранить месяц</button>
         </form>
         <div class="items">${items}</div>
@@ -440,19 +563,54 @@ function monthHtml(group) {
 
 async function loadPortfolios(preferredId = state.portfolioId) {
   const portfolios = await api("/api/portfolios");
-  portfolioSelect.replaceChildren(...portfolios.map((portfolio) => {
+  const optionsFor = () => portfolios.map((portfolio) => {
     const option = document.createElement("option");
     option.value = portfolio.id;
     option.textContent = portfolio.name;
     return option;
-  }));
+  });
+  portfolioSelect.replaceChildren(...optionsFor());
+  analyticsPortfolioSelect.replaceChildren(...optionsFor());
+  telegramPortfolioSelect.replaceChildren(...optionsFor());
+  newItemPortfolioSelect.replaceChildren(...optionsFor());
+  automaticExpensePortfolioSelect.replaceChildren(...optionsFor());
   if (!portfolios.length) throw new Error("Нет доступных портфелей.");
   state.portfolioId = portfolios.some((portfolio) => Number(portfolio.id) === Number(preferredId))
     ? Number(preferredId)
     : Number(portfolios[0].id);
   portfolioSelect.value = String(state.portfolioId);
+  analyticsPortfolioSelect.value = String(state.portfolioId);
+  telegramPortfolioSelect.value = String(state.portfolioId);
+  newItemPortfolioSelect.value = String(state.portfolioId);
+  state.automaticExpensePortfolioId = portfolios.some(
+    (portfolio) => Number(portfolio.id) === Number(state.automaticExpensePortfolioId)
+  ) ? Number(state.automaticExpensePortfolioId) : state.portfolioId;
+  automaticExpensePortfolioSelect.value = String(state.automaticExpensePortfolioId);
   portfolioNameInput.value = portfolios.find((portfolio) => Number(portfolio.id) === state.portfolioId).name;
   renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
+  renderGlassSelect(analyticsPortfolioSelect, analyticsPortfolioPickerLabel, analyticsPortfolioPickerMenu);
+  renderGlassSelect(telegramPortfolioSelect, telegramPortfolioPickerLabel, telegramPortfolioPickerMenu);
+  renderGlassSelect(newItemPortfolioSelect, newItemPortfolioPickerLabel, newItemPortfolioPickerMenu);
+  renderGlassSelect(
+    automaticExpensePortfolioSelect,
+    automaticExpensePortfolioPickerLabel,
+    automaticExpensePortfolioPickerMenu,
+  );
+}
+
+async function loadAutomaticExpenseSettings() {
+  const portfolioId = state.automaticExpensePortfolioId ?? state.portfolioId;
+  if (portfolioId === null) return;
+  const profile = await api(`/api/settings/automatic-expense?portfolio_id=${portfolioId}`);
+  if (state.automaticExpensePortfolioId !== portfolioId) return;
+  automaticExpenseAmount.value = profile.amount;
+  automaticExpenseCurrencySelect.value = profile.expense_currency;
+  renderGlassSelect(
+    automaticExpenseCurrencySelect,
+    automaticExpenseCurrencyPickerLabel,
+    automaticExpenseCurrencyPickerMenu,
+  );
+  automaticExpenseHint.textContent = `Применяется только к новым вещам. Сейчас: ${profile.amount} ${profile.expense_currency} для покупки в ${profile.purchase_currency}.`;
 }
 
 async function loadCatalog(force = false) {
@@ -466,13 +624,31 @@ async function loadCatalog(force = false) {
   const fingerprint = JSON.stringify(data);
   if (!force && fingerprint === lastCatalogFingerprint) return;
   lastCatalogFingerprint = fingerprint;
+  if (!state.rateDirty) {
+    state.purchaseCurrency = data.purchase_currency;
+    state.saleCurrency = data.sale_currency;
+    purchaseCurrencySelect.value = state.purchaseCurrency;
+    saleCurrencySelect.value = state.saleCurrency;
+    renderGlassSelect(purchaseCurrencySelect, purchaseCurrencyPickerLabel, purchaseCurrencyPickerMenu);
+    renderGlassSelect(saleCurrencySelect, saleCurrencyPickerLabel, saleCurrencyPickerMenu);
+    updateCurrencyLabels();
+  }
   if (!state.rateDirty && (force || document.activeElement !== rateInput)) rateInput.value = data.exchange_rate;
   const summaryGroup = currentMonthGroup(data.months);
   collapsedSummary.innerHTML = collapsedSummaryHtml(summaryGroup);
   catalogRoot.querySelectorAll(".month").forEach((month) => {
     monthOpenState.set(monthStateKey(month.dataset.period), month.open);
   });
-  catalogRoot.innerHTML = data.months.map(monthHtml).join("");
+  const orderedMonths = orderMonthGroups(data.months);
+  catalogRoot.innerHTML = orderedMonths.map(monthHtml).join("");
+  if (summaryGroup) {
+    const currentPeriod = `${summaryGroup.year}-${summaryGroup.month}`;
+    const currentMonth = catalogRoot.querySelector(`.month[data-period="${currentPeriod}"]`);
+    if (currentMonth) currentMonth.after(collapsedSummary);
+    else catalogRoot.append(collapsedSummary);
+  } else {
+    catalogRoot.append(collapsedSummary);
+  }
   updateCollapsedSummaryVisibility(summaryGroup);
 }
 
@@ -507,7 +683,7 @@ async function loadTelegramStatus(force = false) {
     telegramStatus.className = "telegram-status status-warning";
     telegramHint.textContent = status.last_status === "ignored" && lastMessage
       ? lastMessage
-      : "Отправьте в канал одну фотографию с ценой в PLN, чтобы обнаружить его.";
+      : `Отправьте в канал одну фотографию с ценой в ${state.purchaseCurrency}, чтобы обнаружить его.`;
   } else {
     telegramStatus.textContent = status.channel_id ? "Остановлен" : "Не настроен";
     telegramStatus.className = "telegram-status";
@@ -532,8 +708,21 @@ async function switchPortfolio(portfolioId) {
   saleDrafts.clear();
   monthlyDrafts.clear();
   portfolioSelect.value = String(portfolioId);
+  analyticsPortfolioSelect.value = String(portfolioId);
+  telegramPortfolioSelect.value = String(portfolioId);
+  newItemPortfolioSelect.value = String(portfolioId);
+  if (state.view !== "settings") state.automaticExpensePortfolioId = portfolioId;
+  automaticExpensePortfolioSelect.value = String(state.automaticExpensePortfolioId);
   portfolioNameInput.value = portfolioSelect.selectedOptions[0].textContent;
   renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
+  renderGlassSelect(analyticsPortfolioSelect, analyticsPortfolioPickerLabel, analyticsPortfolioPickerMenu);
+  renderGlassSelect(telegramPortfolioSelect, telegramPortfolioPickerLabel, telegramPortfolioPickerMenu);
+  renderGlassSelect(newItemPortfolioSelect, newItemPortfolioPickerLabel, newItemPortfolioPickerMenu);
+  renderGlassSelect(
+    automaticExpensePortfolioSelect,
+    automaticExpensePortfolioPickerLabel,
+    automaticExpensePortfolioPickerMenu,
+  );
   try {
     await loadCatalog(true);
     await loadTelegramStatus(true);
@@ -563,8 +752,164 @@ analyticsPickerMenu.addEventListener("click", (event) => {
   analyticsPeriod.dispatchEvent(new Event("change"));
 });
 
-analyticsButton.addEventListener("click", async () => {
-  try { await setView(state.view === "catalog" ? "analytics" : "catalog"); }
+analyticsPortfolioPickerButton.addEventListener("click", () => toggleGlassSelect(analyticsPortfolioPickerButton, analyticsPortfolioPickerMenu));
+analyticsPortfolioPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  analyticsPortfolioSelect.value = option.dataset.value;
+  renderGlassSelect(analyticsPortfolioSelect, analyticsPortfolioPickerLabel, analyticsPortfolioPickerMenu);
+  closeGlassSelects();
+  switchPortfolio(Number(option.dataset.value));
+});
+
+telegramPortfolioPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(telegramPortfolioPickerButton, telegramPortfolioPickerMenu);
+});
+telegramPortfolioPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  telegramPortfolioSelect.value = option.dataset.value;
+  renderGlassSelect(telegramPortfolioSelect, telegramPortfolioPickerLabel, telegramPortfolioPickerMenu);
+  closeGlassSelects();
+  switchPortfolio(Number(option.dataset.value));
+});
+
+newItemPortfolioPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(newItemPortfolioPickerButton, newItemPortfolioPickerMenu);
+});
+newItemPortfolioPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  newItemPortfolioSelect.value = option.dataset.value;
+  renderGlassSelect(newItemPortfolioSelect, newItemPortfolioPickerLabel, newItemPortfolioPickerMenu);
+  closeGlassSelects();
+  switchPortfolio(Number(option.dataset.value));
+});
+
+automaticExpensePortfolioPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(automaticExpensePortfolioPickerButton, automaticExpensePortfolioPickerMenu);
+});
+automaticExpensePortfolioPickerMenu.addEventListener("click", async (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  state.automaticExpensePortfolioId = Number(option.dataset.value);
+  automaticExpensePortfolioSelect.value = option.dataset.value;
+  renderGlassSelect(
+    automaticExpensePortfolioSelect,
+    automaticExpensePortfolioPickerLabel,
+    automaticExpensePortfolioPickerMenu,
+  );
+  closeGlassSelects();
+  try { await loadAutomaticExpenseSettings(); } catch (error) { setMessage(error.message); }
+});
+
+automaticExpenseCurrencyPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(automaticExpenseCurrencyPickerButton, automaticExpenseCurrencyPickerMenu);
+});
+automaticExpenseCurrencyPickerMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("button[data-value]");
+  if (!option) return;
+  automaticExpenseCurrencySelect.value = option.dataset.value;
+  renderGlassSelect(
+    automaticExpenseCurrencySelect,
+    automaticExpenseCurrencyPickerLabel,
+    automaticExpenseCurrencyPickerMenu,
+  );
+  closeGlassSelects();
+});
+
+function selectCurrency(select, label, menu, option) {
+  select.value = option.dataset.value;
+  renderGlassSelect(select, label, menu);
+  state.purchaseCurrency = purchaseCurrencySelect.value;
+  state.saleCurrency = saleCurrencySelect.value;
+  state.rateDirty = true;
+  updateCurrencyLabels();
+  closeGlassSelects();
+}
+
+function closeCurrencyPicker(button, menu) {
+  button.setAttribute("aria-expanded", "false");
+  animateVisibility(menu, false);
+}
+
+function closeCurrencyPanel() {
+  if (currencyPanel.hidden) return;
+  closeCurrencyPicker(purchaseCurrencyPickerButton, purchaseCurrencyPickerMenu);
+  closeCurrencyPicker(saleCurrencyPickerButton, saleCurrencyPickerMenu);
+  animateVisibility(currencyPanel, false);
+  currencyPanelButton.setAttribute("aria-expanded", "false");
+}
+
+purchaseCurrencyPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(purchaseCurrencyPickerButton, purchaseCurrencyPickerMenu);
+});
+purchaseCurrencyPickerMenu.addEventListener("click", (event) => {
+  if (event.target.closest('[data-action="close-currency-menu"]')) {
+    closeCurrencyPicker(purchaseCurrencyPickerButton, purchaseCurrencyPickerMenu);
+    return;
+  }
+  const option = event.target.closest("button[data-value]");
+  if (option) selectCurrency(purchaseCurrencySelect, purchaseCurrencyPickerLabel, purchaseCurrencyPickerMenu, option);
+});
+saleCurrencyPickerButton.addEventListener("click", () => {
+  toggleGlassSelect(saleCurrencyPickerButton, saleCurrencyPickerMenu);
+});
+saleCurrencyPickerMenu.addEventListener("click", (event) => {
+  if (event.target.closest('[data-action="close-currency-menu"]')) {
+    closeCurrencyPicker(saleCurrencyPickerButton, saleCurrencyPickerMenu);
+    return;
+  }
+  const option = event.target.closest("button[data-value]");
+  if (option) selectCurrency(saleCurrencySelect, saleCurrencyPickerLabel, saleCurrencyPickerMenu, option);
+});
+
+currencyPanelButton.addEventListener("click", () => {
+  togglePanel(currencyPanel, currencyPanelButton);
+});
+
+currencyPanelClose.addEventListener("click", () => {
+  closeCurrencyPanel();
+  currencyPanelButton.focus();
+});
+
+latestRateButton.addEventListener("click", async () => {
+  latestRateButton.disabled = true;
+  try {
+    const query = new URLSearchParams({
+      purchase_currency: purchaseCurrencySelect.value,
+      sale_currency: saleCurrencySelect.value
+    });
+    const result = await api(`/api/exchange-rates/latest?${query}`);
+    rateInput.value = result.exchange_rate;
+    state.rateDraft = result.exchange_rate;
+    state.rateDirty = true;
+  } catch (error) { setMessage(error.message); }
+  finally { latestRateButton.disabled = false; }
+});
+
+mobileCatalogTab.addEventListener("click", async () => {
+  try { await setView("catalog"); }
+  catch (error) { setMessage(error.message); }
+});
+
+mobileAnalyticsTab.addEventListener("click", async () => {
+  try { await setView("analytics"); }
+  catch (error) { setMessage(error.message); }
+});
+
+mobileTelegramTab.addEventListener("click", async () => {
+  try { await setView("telegram"); }
+  catch (error) { setMessage(error.message); }
+});
+
+mobileNewItemTab.addEventListener("click", async () => {
+  try { await setView("new-item"); }
+  catch (error) { setMessage(error.message); }
+});
+
+mobileSettingsTab.addEventListener("click", async () => {
+  try { await setView("settings"); }
   catch (error) { setMessage(error.message); }
 });
 
@@ -572,13 +917,6 @@ analyticsPeriod.addEventListener("change", async () => {
   renderGlassSelect(analyticsPeriod, analyticsPickerLabel, analyticsPickerMenu);
   lastAnalyticsFingerprint = null;
   try { await loadAnalytics(true); } catch (error) { analyticsSections.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; }
-});
-
-addItemButton.addEventListener("click", () => {
-  const isOpening = togglePanel(newItemPanel, addItemButton);
-  if (isOpening) {
-    document.querySelector('#itemForm [name="purchase_price_pln"]').focus();
-  }
 });
 
 renamePortfolioButton.addEventListener("click", () => {
@@ -625,8 +963,10 @@ renamePortfolioForm.addEventListener("submit", async (event) => {
   try {
     const renamed = await api(`/api/portfolios/${state.portfolioId}`, jsonOptions("PUT", { name: portfolioNameInput.value }));
     portfolioSelect.selectedOptions[0].textContent = renamed.name;
+    analyticsPortfolioSelect.selectedOptions[0].textContent = renamed.name;
     portfolioNameInput.value = renamed.name;
     renderGlassSelect(portfolioSelect, portfolioPickerLabel, portfolioPickerMenu);
+    renderGlassSelect(analyticsPortfolioSelect, analyticsPortfolioPickerLabel, analyticsPortfolioPickerMenu);
     renamePortfolioForm.hidden = true;
     setMessage();
   } catch (error) { setMessage(error.message); }
@@ -646,11 +986,26 @@ deletePortfolioButton.addEventListener("click", async () => {
   } catch (error) { setMessage(error.message); }
 });
 
-telegramButton.addEventListener("click", async () => {
-  const isOpening = togglePanel(telegramPanel, telegramButton);
-  if (isOpening) {
-    try { await loadTelegramStatus(); } catch (error) { setMessage(error.message); }
-  }
+deleteMyDataButton.addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "Безвозвратно удалить все ваши портфели, вещи, фотографии и настройки Telegram? Действие нельзя отменить."
+  );
+  if (!confirmed) return;
+  deleteMyDataButton.disabled = true;
+  try {
+    await api("/api/me/data", { method: "DELETE" });
+    state.portfolioId = null;
+    state.automaticExpensePortfolioId = null;
+    saleDrafts.clear();
+    monthlyDrafts.clear();
+    monthOpenState.clear();
+    closeGlassSelects();
+    await loadPortfolios(null);
+    await switchPortfolio(state.portfolioId);
+    await setView("catalog");
+    setMessage("Все ваши данные удалены. Создан новый пустой портфель.");
+  } catch (error) { setMessage(error.message); }
+  finally { deleteMyDataButton.disabled = false; }
 });
 
 telegramForm.addEventListener("submit", async (event) => {
@@ -764,12 +1119,37 @@ filters.addEventListener("click", async (event) => {
 document.querySelector("#rateForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    await api("/api/settings/exchange-rate", jsonOptions("PUT", { rate: rateInput.value }));
+    await api("/api/settings/currencies", jsonOptions("PUT", {
+      portfolio_id: state.portfolioId,
+      purchase_currency: purchaseCurrencySelect.value,
+      sale_currency: saleCurrencySelect.value,
+      rate: rateInput.value
+    }));
     state.rateDraft = null;
     state.rateDirty = false;
     rateInput.blur();
+    setMessage(`Новые вещи будут создаваться в паре ${purchaseCurrencySelect.value} → ${saleCurrencySelect.value}.`);
     await loadCatalog(true);
   } catch (error) { setMessage(error.message); }
+});
+
+automaticExpenseForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const portfolioId = state.automaticExpensePortfolioId;
+  if (portfolioId === null) return;
+  const button = automaticExpenseForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const profile = await api("/api/settings/automatic-expense", jsonOptions("PUT", {
+      portfolio_id: portfolioId,
+      amount: automaticExpenseAmount.value,
+      expense_currency: automaticExpenseCurrencySelect.value,
+    }));
+    automaticExpenseAmount.value = profile.amount;
+    automaticExpenseHint.textContent = `Применяется только к новым вещам. Сейчас: ${profile.amount} ${profile.expense_currency} для покупки в ${profile.purchase_currency}.`;
+    setMessage("Автоматический расход сохранён.");
+  } catch (error) { setMessage(error.message); }
+  finally { button.disabled = false; }
 });
 
 document.querySelector("#itemForm").addEventListener("submit", async (event) => {
@@ -790,6 +1170,8 @@ document.querySelector("#itemForm").addEventListener("submit", async (event) => 
     }
     form.reset();
     form.elements.purchase_date.valueAsDate = new Date();
+    const fileName = form.querySelector("[data-file-name]");
+    if (fileName) fileName.textContent = "Добавить фото";
     await loadCatalog(true);
   } catch (error) { setMessage(error.message); }
 });
@@ -889,6 +1271,7 @@ catalogRoot.addEventListener("click", async (event) => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".glass-select")) closeGlassSelects();
+  if (!event.target.closest("#currencyPanel, #currencyPanelButton")) closeCurrencyPanel();
   if (event.target.closest(".item-menu-wrap")) return;
   if (state.openItemMenuId === null) return;
   state.openItemMenuId = null;
@@ -902,6 +1285,38 @@ document.addEventListener("click", (event) => {
 
 photoViewer.addEventListener("click", () => photoViewer.close());
 photoViewer.addEventListener("close", () => photoViewerImage.removeAttribute("src"));
+
+let scrollTopFrame = null;
+
+function updateScrollTopButton() {
+  const shouldShow = window.innerWidth <= 620 && window.scrollY > Math.max(420, window.innerHeight * 0.65);
+  scrollTopButton.classList.toggle("is-visible", shouldShow);
+  scrollTopButton.setAttribute("aria-hidden", String(!shouldShow));
+  scrollTopButton.tabIndex = shouldShow ? 0 : -1;
+}
+
+function scrollToCatalogTop() {
+  const start = window.scrollY;
+  if (start <= 0) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    window.scrollTo(0, 0);
+    return;
+  }
+  const duration = Math.min(420, Math.max(240, start * 0.12));
+  const startedAt = performance.now();
+  cancelAnimationFrame(scrollTopFrame);
+  const step = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 4);
+    window.scrollTo(0, Math.round(start * (1 - eased)));
+    if (progress < 1) scrollTopFrame = requestAnimationFrame(step);
+  };
+  scrollTopFrame = requestAnimationFrame(step);
+}
+
+scrollTopButton.addEventListener("click", scrollToCatalogTop);
+window.addEventListener("scroll", updateScrollTopButton, { passive: true });
+window.addEventListener("resize", updateScrollTopButton);
 
 rateInput.addEventListener("input", () => {
   state.rateDraft = rateInput.value;
@@ -922,8 +1337,15 @@ setInterval(async () => {
 }, 2000);
 
 document.addEventListener("DOMContentLoaded", async () => {
+  window.Telegram?.WebApp?.ready();
+  window.Telegram?.WebApp?.expand();
+  try {
+    const runtime = await api("/api/health");
+    deleteMyDataPanel.hidden = !runtime.data_deletion_enabled;
+  } catch (_) {}
   document.querySelector('#itemForm [name="purchase_date"]').valueAsDate = new Date();
   updateFilterIndicator();
+  updateScrollTopButton();
   renderGlassSelect(analyticsPeriod, analyticsPickerLabel, analyticsPickerMenu);
   try {
     await loadPortfolios();
